@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Salon, Professional, Service, Product, Client, Comanda, 
   FinancialRecord, Appointment, ChartAccountGroup, ComandaStatus, ServiceCategory,
@@ -21,6 +21,7 @@ import {
 } from './dataStore';
 
 import { formatPhone, formatCNPJ } from './utils';
+import { getTenantStatus, getDaysRemaining, type TenantStatus } from './utils/billing/getTenantStatus';
 
 // Icons
 import { 
@@ -347,25 +348,23 @@ export default function App() {
     }
   }, [currentSalon, userRole]);
 
-  // Calcula dias restantes de licença com matemática precisa
+  // Status de assinatura calculado reativamente
+  const tenantStatus = useMemo<TenantStatus>(() => {
+    if (userRole === "SAAS_ADMIN") return "ACTIVE";
+    return getTenantStatus(currentSalon?.expirationDate).status;
+  }, [currentSalon?.expirationDate, userRole]);
+
+  // Wrapper para compatibilidade com componentes existentes (ConfiguracoesTenancy)
   const getSubscriptionDaysRemaining = () => {
-    if (!currentSalon || !currentSalon.expirationDate) return 999;
-    const expDate = new Date(currentSalon.expirationDate + "T23:59:59");
-    const today = new Date();
-    
-    const expMid = new Date(expDate.getFullYear(), expDate.getMonth(), expDate.getDate());
-    const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    
-    const diffTime = expMid.getTime() - todayMid.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
+    if (!currentSalon) return 999;
+    return getDaysRemaining(currentSalon.expirationDate);
   };
 
   const isRestrictedModeActive = () => {
     if (!currentSalon) return false;
-    if (userRole === "SAAS_ADMIN") return false; // SaaS manager is exempt
-    const days = getSubscriptionDaysRemaining();
-    return days < 0;
+    if (userRole === "SAAS_ADMIN") return false;
+    const { status } = getTenantStatus(currentSalon.expirationDate);
+    return status === "EXPIRED";
   };
 
   // Intercepta e bloqueia alterações no banco se o sistema estiver bloqueado
@@ -375,6 +374,14 @@ export default function App() {
       return true;
     }
     return false;
+  };
+
+  // Tabs permitidas apenas quando ACTIVE
+  const blockedTabs = new Set(["agendamentos", "comandas", "financeiro", "relatorios", "colecoes"]);
+
+  const isTabBlocked = (tabId: string): boolean => {
+    if (userRole === "SAAS_ADMIN") return false;
+    return tenantStatus === "EXPIRED" && blockedTabs.has(tabId);
   };
 
   // Inicia checkout real/simulado no Stripe através do backend fullstack
@@ -1493,13 +1500,16 @@ export default function App() {
                 <button
                   key={item.id}
                   onClick={() => {
+                    if (isTabBlocked(item.id)) return;
                     setActiveTab(item.id as any);
                     setIsMobileMenuOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-xs font-bold font-sans transition-all cursor-pointer ${
-                    activeTab === item.id 
-                      ? 'bg-[#e5b35f] text-black font-extrabold shadow-sm' 
-                      : 'text-stone-400 hover:text-white hover:bg-zinc-900'
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-xs font-bold font-sans transition-all ${
+                    isTabBlocked(item.id)
+                      ? 'text-stone-600 cursor-not-allowed opacity-50'
+                      : 'cursor-pointer ' + (activeTab === item.id 
+                        ? 'bg-[#e5b35f] text-black font-extrabold shadow-sm' 
+                        : 'text-stone-400 hover:text-white hover:bg-zinc-900')
                   }`}
                 >
                   <IconComp className="w-4 h-4 shrink-0" />
@@ -1533,20 +1543,21 @@ export default function App() {
       {/* RIGHT MAIN CONTAINER SCROLL CONTEXT */}
       <main className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-10 max-w-[1200px] mx-auto w-full print:p-0 print:m-0 print:max-w-none relative">
         
-        {/* SaaS Subscription Alerts System */}
+        {/* Tenant Subscription Banner */}
         {currentSalon && (() => {
-          const days = getSubscriptionDaysRemaining();
-          const isRestricted = isRestrictedModeActive();
+          if (userRole === "SAAS_ADMIN") return null;
 
-          if (isRestricted) {
+          const { status, daysRemaining } = getTenantStatus(currentSalon.expirationDate);
+
+          if (status === "EXPIRED") {
             return (
               <div className="mb-6 bg-rose-50 border-2 border-rose-600 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-rose-900 leading-normal animate-fade-in shadow-sm font-sans">
                 <div className="flex gap-3">
                   <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                   <div>
-                    <strong className="block text-rose-950 font-extrabold text-sm">Modo Restrito Ativado: Assinatura Vencida!</strong>
+                    <strong className="block text-rose-950 font-extrabold text-sm">Assinatura Vencida — Sistema Bloqueado</strong>
                     <p className="text-xs text-rose-800 leading-relaxed max-w-2xl mt-0.5">
-                      Sua assinatura do plano Modello Enterprise (vencida em {currentSalon.expirationDate}) expirou há {Math.abs(days)} {Math.abs(days) === 1 ? 'dia' : 'dias'}. O sistema está operando em <strong>Modo Restrito (Somente Leitura)</strong>. Inclusões, edições, baixas e cancelamentos estão temporariamente bloqueados.
+                      Sua assinatura expirou em {currentSalon.expirationDate} ({Math.abs(daysRemaining)} {Math.abs(daysRemaining) === 1 ? 'dia' : 'dias'} atrás). O acesso a comandas, financeiro, relatórios e agendamentos foi restrito. Renove o plano para reativar o sistema completo.
                     </p>
                   </div>
                 </div>
@@ -1555,83 +1566,35 @@ export default function App() {
                   className="w-full md:w-auto shrink-0 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
                 >
                   <CreditCard className="w-4 h-4 text-stone-100" />
-                  <span>Renovar Assinatura</span>
+                  <span>Renovar Plano</span>
                 </button>
-              </div>
-            );
-          } else if (days === 0) {
-            return (
-              <div className="mb-6 bg-rose-50 border-2 border-red-300 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-red-900 leading-normal animate-fade-in shadow-xs font-sans">
-                <div className="flex gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5 animate-pulse" />
-                  <div>
-                    <strong className="block text-red-950 font-extrabold text-sm">Sua Assinatura SaaS Vence Hoje!</strong>
-                    <p className="text-xs text-rose-850 leading-relaxed mt-0.5">
-                      Evite a suspensão automática das escrituras comerciais do salão amanhã. Renove sua assinatura mensal de R$ 120,00 de maneira segura online.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={handleLaunchStripeCheckout}
-                  className="w-full md:w-auto shrink-0 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
-                >
-                  <CreditCard className="w-4 h-4 text-stone-100" />
-                  <span>Renovar Assinatura (R$ 120,00)</span>
-                </button>
-              </div>
-            );
-          } else if (days > 0 && days <= 3) {
-            return (
-              <div className="mb-6 bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-amber-900 leading-normal animate-fade-in shadow-2xs font-sans">
-                <div className="flex gap-3">
-                  <AlertCircle className="w-5 h-5 text-[#b06000] shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="block text-[#703000] font-extrabold text-sm">Aviso de Vencimento: Bloqueio Iminente em {days} {days === 1 ? 'dia' : 'dias'}!</strong>
-                    <p className="text-xs text-amber-800 leading-relaxed mt-0.5 font-sans">
-                      Sua assinatura mensal vencerá em {currentSalon.expirationDate}. Evite a suspensão do registro de sessões, comandas e fluxos de caixa regulares do seu salão.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={handleLaunchStripeCheckout}
-                  className="w-full md:w-auto shrink-0 bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
-                >
-                  <CreditCard className="w-4 h-4 text-stone-150" />
-                  <span>Renovar Assinatura</span>
-                </button>
-              </div>
-            );
-          } else if (days > 3 && days <= 7 && !dismissedWarning) {
-            return (
-              <div className="mb-6 bg-[#FAF8F5] border border-stone-250 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-stone-700 leading-normal animate-fade-in shadow-2xs font-sans">
-                <div className="flex gap-3">
-                  <Info className="w-5 h-5 text-stone-500 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="block text-stone-900 font-extrabold text-sm">Sua renovação está chegando</strong>
-                    <p className="text-xs text-stone-600 leading-relaxed mt-0.5">
-                      A assinatura mensal Enterprise de R$ 120,00 expira em {currentSalon.expirationDate} (restam {days} dias). Mantenha seu fluxo comercial ativo.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
-                  <button
-                    onClick={handleLaunchStripeCheckout}
-                    className="text-white bg-zinc-950 hover:bg-black text-[11px] font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-xs transition cursor-pointer"
-                  >
-                    <CreditCard className="w-3.5 h-3.5 text-stone-200" />
-                    <span>Pagar R$ 120</span>
-                  </button>
-                  <button
-                    onClick={() => setDismissedWarning(true)}
-                    className="text-stone-400 hover:text-stone-700 text-xs p-2 rounded-md hover:bg-stone-100 transition cursor-pointer"
-                    title="Fechar Aviso Temporariamente"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
               </div>
             );
           }
+
+          if (status === "EXPIRING_SOON") {
+            return (
+              <div className="mb-6 bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-amber-900 leading-normal animate-fade-in shadow-xs font-sans">
+                <div className="flex gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block text-amber-950 font-extrabold text-sm">Assinatura Próxima do Vencimento — {daysRemaining} {daysRemaining === 1 ? 'dia' : 'dias'} Restantes</strong>
+                    <p className="text-xs text-amber-800 leading-relaxed max-w-2xl mt-0.5">
+                      Sua assinatura do plano Modello Enterprise vence em {currentSalon.expirationDate}. Renove agora para evitar a suspensão do sistema.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleLaunchStripeCheckout}
+                  className="w-full md:w-auto shrink-0 bg-zinc-900 hover:bg-black text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                >
+                  <CreditCard className="w-4 h-4 text-stone-200" />
+                  <span>Renovar Plano</span>
+                </button>
+              </div>
+            );
+          }
+
           return null;
         })()}
 
@@ -1715,7 +1678,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'comandas' && currentSalon && (
+        {activeTab === 'comandas' && currentSalon && !isTabBlocked('comandas') && (
           <ComandasKanban
             salonId={currentSalon.id}
             salonName={currentSalon.name}
@@ -1734,7 +1697,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'agendamentos' && currentSalon && (
+        {activeTab === 'agendamentos' && currentSalon && !isTabBlocked('agendamentos') && (
           <AgendamentosList
             salonId={currentSalon.id}
             appointments={appointments}
@@ -1749,7 +1712,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'financeiro' && currentSalon && (
+        {activeTab === 'financeiro' && currentSalon && !isTabBlocked('financeiro') && (
           <FinanceiroDashboard
             salonId={currentSalon.id}
             financials={financials}
@@ -1764,7 +1727,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'relatorios' && currentSalon && (
+        {activeTab === 'relatorios' && currentSalon && !isTabBlocked('relatorios') && (
           <RelatoriosDashboard
             salonId={currentSalon.id}
             financials={financials}
@@ -1773,7 +1736,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'colecoes' && currentSalon && (
+        {activeTab === 'colecoes' && currentSalon && !isTabBlocked('colecoes') && (
           <ColecoesCrud
             salonId={currentSalon.id}
             maxProfessionals={currentSalon.maxProfessionals || 5}
@@ -1791,6 +1754,24 @@ export default function App() {
             onUpdateServiceCategories={triggerUpdateServiceCategories}
             onUpdateCardAcquirers={triggerUpdateCardAcquirers}
           />
+        )}
+
+        {/* Fallback para tab bloqueada por expiração */}
+        {currentSalon && isTabBlocked(activeTab) && (
+          <div className="flex flex-col items-center justify-center py-16 text-center animate-fade-in">
+            <ShieldAlert className="w-12 h-12 text-rose-300 mb-4" />
+            <h3 className="text-lg font-extrabold text-rose-800 mb-1">Módulo Bloqueado</h3>
+            <p className="text-sm text-stone-500 max-w-md leading-relaxed">
+              Sua assinatura está vencida. Renove o plano para reativar o acesso a este módulo.
+            </p>
+            <button
+              onClick={handleLaunchStripeCheckout}
+              className="mt-5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-5 py-2.5 rounded-lg flex items-center gap-2 shadow-xs transition cursor-pointer"
+            >
+              <CreditCard className="w-4 h-4" />
+              <span>Renovar Plano</span>
+            </button>
+          </div>
         )}
 
         {activeTab === 'configuracoes' && (
