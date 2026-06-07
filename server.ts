@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import { tenantAccessGuard, invalidateTenantCache } from "./middleware/tenantAccessGuard";
 
+console.log('[Bootstrap] server.ts — todos os imports ESM resolvidos. Iniciando dotenv...');
 dotenv.config();
 
 const app = express();
@@ -1091,6 +1092,7 @@ async function setupViteOrStatic() {
   }
 }
 
+console.log('[Bootstrap] server.ts — app configurado. VERCEL=' + process.env.VERCEL + ', NODE_ENV=' + process.env.NODE_ENV);
 export default app;
 
 if (process.env.VERCEL !== '1') {
