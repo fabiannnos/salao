@@ -102,49 +102,74 @@ export const BCB_COMPATIBLE_MODE = true;
  */
 const TXID_MAX_LENGTH = 25;
 
-/** Caracteres permitidos no txid pelo BR Code. */
-const TXID_ALLOWED_RE = /^[A-Za-z0-9\-._]{1,25}$/;
+/**
+ * Caracteres permitidos no txid pelo BR Code.
+ *
+ * ⚠️ NOTA SOBRE COMPATIBILIDADE BANCÁRIA:
+ *
+ * O Manual BCB permite `[A-Za-z0-9\-._]` no txid (até 25 chars),
+ * mas na prática, vários bancos brasileiros **rejeitam** txid que
+ * contenham `_` ou `.`, aceitando apenas `[A-Za-z0-9]` (alfanumérico
+ * puro). Esta regex restritiva reflete o que é universalmente aceito.
+ */
+const TXID_ALLOWED_RE = /^[A-Za-z0-9]{1,25}$/;
 
 /**
- * Gera um TXID determinístico a partir do `comandaId` e do
- * `timestampMs`. O formato é `CMD{id}_{shortHash}`, totalmente
- * alfanumérico, com até 25 caracteres (limite do BR Code).
+ * Gera um TXID determinístico e compatível com a maioria dos bancos
+ * brasileiros a partir do `comandaId`. O TXID é totalmente alfanumérico
+ * (sem `_`, `.` ou `-`) e tem até 25 caracteres (limite do BR Code).
  *
- * Determinístico significa: mesmos inputs → mesmo output. Isso
- * garante idempotência: gerar o QR duas vezes para a mesma comanda
- * produz o mesmo BR Code, evitando divergências em sincronização.
+ * **Por que não usar hash de timestamp?** O site
+ * www.gerarqrcodepix.com (usado como referência por ser validado
+ * em apps bancários reais) gera txid curto e clean (ex: `CMD0006`).
+ * Vários bancos rejeitam txids com `_`, mesmo sendo permitido pela
+ * especificação. Adotar o padrão alfanumérico curto maximiza a
+ * compatibilidade.
  *
- * @param comandaId   ID da comanda (ex: "cmd_a1b2c3d4e" ou "CMD-00042")
- * @param timestampMs Timestamp em ms. Se omitido, usa `Date.now()`.
- *                    Em testes, passar valor fixo.
+ * Estratégia:
+ *  - Extrai parte alfanumérica do `comandaId`
+ *  - Garante prefixo "CMD" (se ainda não tiver)
+ *  - Mantém o resto alfanumérico em uppercase
  *
- * @returns TXID no formato `CMD{idCurto}_{hashCurto}` (≤ 25 chars)
+ * Determinístico: mesmos inputs → mesmo output. Isso garante
+ * idempotência: gerar o QR duas vezes para a mesma comanda produz
+ * o mesmo BR Code, evitando divergências em sincronização.
+ *
+ * @param comandaId   ID da comanda (ex: "CMD-0006", "cmd_a1b2c3d4e")
+ * @param timestampMs (IGNORADO nesta versão — mantido para
+ *                    compatibilidade de assinatura. O txid é 100%
+ *                    determinístico a partir do comandaId.)
+ *
+ * @returns TXID alfanumérico (≤ 25 chars)
  *
  * @example
- *   generatePixTxid('cmd_a1b2c3d4e', 1749312000000)
- *   // → "CMDA1B2C3D4E_K1F9Q" (12 chars)
+ *   generatePixTxid('CMD-0006')
+ *   // → "CMD0006" (7 chars)
+ *
+ *   generatePixTxid('cmd_a1b2c3d4e')
+ *   // → "CMDA1B2C3D4E" (12 chars)
+ *
+ *   generatePixTxid('xyz123')
+ *   // → "CMDXYZ123" (9 chars — prefixo CMD adicionado)
  */
-export function generatePixTxid(comandaId: string, timestampMs: number = Date.now()): string {
-  // Extrai parte alfanumérica do comandaId, sem prefixos tipo "cmd_"
-  const idPart = (comandaId || '')
+export function generatePixTxid(comandaId: string, _timestampMs?: number): string {
+  // 1) Extrai só caracteres alfanuméricos e converte para uppercase
+  const cleaned = (comandaId || '')
     .replace(/[^A-Za-z0-9]/g, '')
-    .toUpperCase()
-    .slice(-10);
+    .toUpperCase();
 
-  // Hash curto determinístico: 5 chars alfanuméricos do timestamp
-  const ts = Math.floor((timestampMs || Date.now()) / 1000);
-  const hashPart = (ts % 36 ** 5).toString(36).toUpperCase().padStart(5, '0');
+  // 2) Garante que começa com "CMD" (alguns bancos exigem esse prefixo
+  //    para reconciliação)
+  const withPrefix = cleaned.startsWith('CMD') ? cleaned : 'CMD' + cleaned;
 
-  // Compõe "CMD" + id + "_" + hash
-  let txid = `CMD${idPart}_${hashPart}`;
+  // 3) Trunca para 25 chars (limite BR Code) e valida charset
+  let txid = withPrefix.length > TXID_MAX_LENGTH
+    ? withPrefix.substring(0, TXID_MAX_LENGTH)
+    : withPrefix;
 
-  // Trunca para 25 chars (limite BR Code) e valida charset
-  if (txid.length > TXID_MAX_LENGTH) {
-    txid = txid.substring(0, TXID_MAX_LENGTH);
-  }
   if (!TXID_ALLOWED_RE.test(txid)) {
-    // Fallback: limpa qualquer char fora do whitelist
-    txid = txid.replace(/[^A-Za-z0-9\-._]/g, '').substring(0, TXID_MAX_LENGTH);
+    // Fallback: limpa qualquer char fora do whitelist alfanumérico
+    txid = txid.replace(/[^A-Za-z0-9]/g, '').substring(0, TXID_MAX_LENGTH);
   }
   return txid;
 }
@@ -317,8 +342,8 @@ function validateGeneratedPayload(payload: string): void {
     if (txid.value === '***') {
       throw new Error(`[pix] validação: txid genérico "***" não é permitido em modo compatibilidade bancária`);
     }
-    if (!/^[A-Za-z0-9\-._]{1,25}$/.test(txid.value)) {
-      throw new Error(`[pix] validação: txid contém chars inválidos: ${txid.value}`);
+    if (!/^[A-Za-z0-9]{1,25}$/.test(txid.value)) {
+      throw new Error(`[pix] validação: txid contém chars inválidos: ${txid.value} (use apenas alfanumérico)`);
     }
   }
 
