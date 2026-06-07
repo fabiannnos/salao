@@ -173,16 +173,23 @@ function encodeTLV(tag: string, value: string): string {
  * sem XOR final. É o algoritmo exigido pelo BR Code e produz saída
  * hex de 4 caracteres em maiúsculas.
  *
- * @param input String sobre a qual calcular o CRC. Por padrão é
- *               o payload inteiro SEM o campo 63 (CRC). A função
- *               então ACRESCENTA "6304" antes de calcular, o que
- *               casa com a implementação usada pela maioria dos
- *               aplicativos bancários brasileiros reais
- *               ("interpretação B" — ver `BCB_COMPATIBLE_MODE`).
+ * ⚠️  SEMÂNTICA DO PARÂMETRO `includeHeader`:
  *
- * @param includeHeader Se `true` (default), calcula sobre
- *                      `input + "6304"`. Se `false`, calcula
- *                      apenas sobre `input` (modo estrito BCB).
+ * O caller SEMPRE passa o payload SEM o sufixo "6304" (cabeçalho do
+ * campo 63) e SEM o próprio CRC. Por exemplo, para o payload
+ * `00020126...62...6304XXXX`, o caller passa `00020126...62...`
+ * (apenas os TLVs antes do campo 63).
+ *
+ * Quando `includeHeader` é `true` (modo BCB_COMPAT, default), a
+ * função acrescenta `"6304"` ao input — implementando a
+ * "interpretação B" usada por diversos bancos brasileiros reais:
+ *   crc = CRC16(input + "6304")
+ *
+ * Quando `includeHeader` é `false` (modo estrito BCB), a função
+ * calcula o CRC apenas sobre o input — mas o caller precisa passar
+ * o input já com `"6304" + "0000"` se quiser a "interpretação A"
+ * (BCB strict). Para o nosso pipeline, o caller passa apenas os
+ * TLVs e usa a interpretação B, que é o default.
  */
 function crc16CCITT(
   input: string,
@@ -316,20 +323,19 @@ function validateGeneratedPayload(payload: string): void {
   }
 
   // 9) CRC recomputado bate
-  // Modo A: CRC calculado sobre payload + "6304" + "0000"
-  // Modo B: CRC calculado sobre payload + "6304"
-  const crcNoPayload = payload.substring(0, payload.length - 4) + '0000';
-  const crcA = crc16CCITT(crcNoPayload, false, false);
-  const crcB = crc16CCITT(payload.substring(0, payload.length - 4), true, false);
+  // O payload é `payloadTLV + "6304" + CRC` (interpretação B).
+  // Extrai `payloadTLV` removendo o sufixo "6304XXXX" (8 chars).
+  // Recomputa o CRC: `crc16CCITT(payloadTLV, true)` faz
+  // `crc16(payloadTLV + "6304")` — exatamente o que foi usado
+  // na geração. Em modo legado, o caller passaria `payloadTLV
+  // + "63040000"` e chamaria com `includeHeader=false`.
+  const payloadTLV = payload.substring(0, payload.length - 8);
+  const crcExpected = crc16CCITT(payloadTLV, true, false);
   const crcFound = payload.substring(payload.length - 4);
-  if (BCB_COMPATIBLE_MODE) {
-    if (crcB !== crcFound) {
-      throw new Error(`[pix] validação: CRC mismatch (modo B): esperado ${crcB}, veio ${crcFound}`);
-    }
-  } else {
-    if (crcA !== crcFound) {
-      throw new Error(`[pix] validação: CRC mismatch (modo A): esperado ${crcA}, veio ${crcFound}`);
-    }
+  if (crcExpected !== crcFound) {
+    throw new Error(
+      `[pix] validação: CRC mismatch: esperado ${crcExpected}, veio ${crcFound} (modo: ${BCB_COMPATIBLE_MODE ? 'BCB_COMPAT (B)' : 'LEGACY'})`
+    );
   }
 }
 
@@ -511,8 +517,10 @@ export function generatePixStatic(input: PixStaticInput & { debug?: boolean }): 
   // ID 62 – Additional Data Field Template (txid)
   const additionalData = encodeTLV('62', encodeTLV('05', effectiveTxid));
 
-  // Montagem do payload SEM o CRC (placeholder "63040000")
-  const payloadNoCrc =
+  // Montagem do payload TLV — APENAS os campos 00..62, sem o
+  // campo 63 (CRC). O sufixo "6304" será acrescentado no momento
+  // de calcular o CRC, conforme interpretação B.
+  const payloadTLV =
     encodeTLV('00', '01') +
     merchantAccountInfo +
     encodeTLV('52', MERCHANT_CATEGORY_CODE) +
@@ -521,9 +529,7 @@ export function generatePixStatic(input: PixStaticInput & { debug?: boolean }): 
     encodeTLV('58', COUNTRY_CODE) +
     encodeTLV('59', cleanName) +
     encodeTLV('60', cleanCity) +
-    additionalData +
-    '6304' +
-    '0000';
+    additionalData;
 
   if (debug) {
     console.log('[pix-audit] ===== TLV (SEM CRC) =====');
@@ -543,14 +549,14 @@ export function generatePixStatic(input: PixStaticInput & { debug?: boolean }): 
         if (i >= s.length) break;
       }
     };
-    console.log('[pix-audit]   payloadNoCrc length:', payloadNoCrc.length);
-    dumpTLV(payloadNoCrc, '');
+    console.log('[pix-audit]   payloadTLV length:', payloadTLV.length);
+    dumpTLV(payloadTLV, '');
     // dump nested 26 and 62
     const find = (id: string) => {
-      const idx = payloadNoCrc.indexOf(id);
+      const idx = payloadTLV.indexOf(id);
       if (idx < 0) return '';
-      const len = parseInt(payloadNoCrc.substring(idx + 2, idx + 4), 10);
-      return payloadNoCrc.substring(idx + 4, idx + 4 + len);
+      const len = parseInt(payloadTLV.substring(idx + 2, idx + 4), 10);
+      return payloadTLV.substring(idx + 4, idx + 4 + len);
     };
     const id26 = find('26');
     const id62 = find('62');
@@ -564,12 +570,13 @@ export function generatePixStatic(input: PixStaticInput & { debug?: boolean }): 
     }
   }
 
-  // CRC calculado sobre o payload inteiro (inclusive o "63040000")
-  // Em modo BCB_COMPAT, o crc16CCITT faz o input reduzido por padrão
-  // (interpretação B: payload + "6304"). Em modo legado, usa
-  // input completo (payload + "63040000" = interpretacao A estrita).
-  const crc = crc16CCITT(payloadNoCrc, useBcb, debug);
-  const qrPayload = payloadNoCrc.replace(/6304\s*0000$/, '6304' + crc);
+  // CRC calculado sobre `payloadTLV + "6304"` em modo compatível
+  // (interpretação B). O "6304" é o cabeçalho do campo 63 (CRC) e
+  // faz parte do input que está sendo protegido. Em modo legado
+  // (includeHeader=false), o caller precisa passar o input já
+  // com "63040000" se quiser a interpretação A estrita.
+  const crc = crc16CCITT(payloadTLV, useBcb, debug);
+  const qrPayload = payloadTLV + '6304' + crc;
 
   if (debug) {
     const fp = (s: string) => {
