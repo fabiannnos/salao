@@ -104,8 +104,8 @@ export default function App() {
 
   // SaaS Master Registration & Logins
   const [isSaaSLogin, setIsSaaSLogin] = useState(false);
-  const [saasEmail, setSaasEmail] = useState('master@modello.com');
-  const [saasPassword, setSaasPassword] = useState(import.meta.env.VITE_SAAS_MASTER_PASSWORD || '');
+  const [saasEmail, setSaasEmail] = useState('');
+  const [saasPassword, setSaasPassword] = useState('');
   const [selectedResetSalonId, setSelectedResetSalonId] = useState<string>('');
   const [resetConfirmTargetId, setResetConfirmTargetId] = useState<string | null>(null);
   const [resetSuccessAlert, setResetSuccessAlert] = useState<string | null>(null);
@@ -1117,17 +1117,27 @@ export default function App() {
     setLoginPassword('');
   };
 
-  const handleSaaSLoginSubmit = (e: React.FormEvent) => {
+  const handleSaaSLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
     if (checkLoginLock()) return;
 
-    if (saasEmail.trim().toLowerCase() === 'master@modello.com' && saasPassword === (import.meta.env.VITE_SAAS_MASTER_PASSWORD || '')) {
-      setUserRole('SAAS_ADMIN');
-      setSalons(loadSalons());
-      setProfessionals(loadProfessionals());
-      registerLoginSuccess();
-      return;
+    try {
+      const res = await fetch("/api/admin/validate-master-credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: saasEmail, password: saasPassword }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setUserRole('SAAS_ADMIN');
+        setSalons(loadSalons());
+        setProfessionals(loadProfessionals());
+        registerLoginSuccess();
+        return;
+      }
+    } catch {
+      /* fallback */
     }
 
     registerLoginFailure();
@@ -1201,7 +1211,7 @@ export default function App() {
                     type="email"
                     required
                     className="w-full px-4 py-3 bg-[#FCF9F2] rounded-lg border border-gray-200 focus:border-gold-500 focus:outline-none text-xs text-stone-900 font-bold"
-                    placeholder="master@modello.com"
+                    placeholder="E-mail administrativo"
                     value={saasEmail}
                     onChange={(e) => setSaasEmail(e.target.value)}
                   />

@@ -41,7 +41,7 @@ function getSupabase() {
 // Global Middleware for parsing
 app.use((req, res, next) => {
   // Save raw body for stripe webhook signature checks
-  if (req.originalUrl === "/api/webhook") {
+  if (req.path === "/api/webhook") {
     next();
   } else {
     express.json()(req, res, next);
@@ -730,6 +730,39 @@ app.post("/api/delete-tenant", express.json(), async (req, res) => {
   }
 });
 
+// Endpoint seguro para validar senha master do SaaS (sem expô-la no frontend)
+app.post("/api/admin/validate-master-password", express.json(), async (req, res) => {
+  const { password } = req.body || {};
+  if (!password || typeof password !== "string") {
+    return res.status(400).json({ success: false, error: "Senha é obrigatória." });
+  }
+  const masterPassword = process.env.SAAS_MASTER_PASSWORD;
+  if (!masterPassword) {
+    return res.status(500).json({ success: false, error: "SAAS_MASTER_PASSWORD não configurada no servidor." });
+  }
+  if (password === masterPassword) {
+    return res.json({ success: true });
+  }
+  return res.status(401).json({ success: false, error: "Senha master inválida." });
+});
+
+// Endpoint seguro para validar e-mail + senha master do SaaS (sem expô-los no frontend)
+app.post("/api/admin/validate-master-credentials", express.json(), async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || typeof email !== "string" || !password || typeof password !== "string") {
+    return res.status(400).json({ success: false, error: "E-mail e senha são obrigatórios." });
+  }
+  const masterEmail = process.env.SAAS_MASTER_EMAIL;
+  const masterPassword = process.env.SAAS_MASTER_PASSWORD;
+  if (!masterEmail || !masterPassword) {
+    return res.status(500).json({ success: false, error: "Credenciais master não configuradas no servidor." });
+  }
+  if (email.toLowerCase() === masterEmail.toLowerCase() && password === masterPassword) {
+    return res.json({ success: true });
+  }
+  return res.status(401).json({ success: false, error: "Credenciais master inválidas." });
+});
+
 // Endpoint para iniciar Checkout Session no Stripe
 app.post("/api/checkout", async (req, res) => {
   const { salonId, customerEmail, successUrl, cancelUrl } = req.body;
@@ -1041,9 +1074,9 @@ app.post("/api/webhook", express.raw({ type: "application/json" }), async (req, 
   res.json({ received: true });
 });
 
-// Vite middleware setup para desenvolvimento, caso contrário serve a build estática
-const startVite = async () => {
-  if (process.env.NODE_ENV !== "production") {
+// Vite middleware em dev / static em produção. Vercel usa CDN + rewrites.
+async function setupViteOrStatic() {
+  if (process.env.NODE_ENV !== "production" && process.env.VERCEL !== '1') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -1056,10 +1089,14 @@ const startVite = async () => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+}
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[Server] Gestão Modello rodando perfeitamente na porta ${PORT}`);
+export default app;
+
+if (process.env.VERCEL !== '1') {
+  setupViteOrStatic().then(() => {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`[Server] Gestão Modello rodando perfeitamente na porta ${PORT}`);
+    });
   });
-};
-
-startVite();
+}
