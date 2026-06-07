@@ -1,0 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  
+  --color-gold-50: #fdfaf2;
+  --color-gold-100: #fbf5e6;
+  --color-gold-200: #f6e6c1;
+  --color-gold-300: #eed093;
+  --color-gold-400: #e5b35f;
+  --color-gold-500: #775a19; /* L'Éclat Primary Gold/Bronze */
+  --color-gold-600: #654c14;
+  --color-gold-700: #503c10;
+  --color-gold-800: #3c2d0c;
+  --color-gold-900: #2c2009;
+}
+
+body {
+  background-color: #FCF9F2;
+  font-family: var(--font-sans);
+  color: #1c1c18;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #e5e2db;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c4c7c7;
+}
+

@@ -1,0 +1,1842 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Salon, Professional, Service, Product, Client, Comanda, 
+  FinancialRecord, Appointment, ChartAccountGroup, ComandaStatus, ServiceCategory,
+  CardAcquirer
+} from './types';
+import { 
+  loadSalons, saveSalons,
+  loadProfessionals, saveProfessionals,
+  loadServices, saveServices,
+  loadProducts, saveProducts,
+  loadClients, saveClients,
+  loadComandas, saveComandas,
+  loadFinancials, saveFinancials,
+  loadAppointments, saveAppointments,
+  loadCharts, saveCharts,
+  loadServiceCategories, saveServiceCategories,
+  addComandaAndUpdateFinance, updateComandaStatus,
+  loadCardAcquirers, saveCardAcquirers, clearSalonMovements, recalculateAllCommissions, deleteSalonDataFull,
+  runProfessionalsMigration2026, getLastProfessionalsMigrationReport
+} from './dataStore';
+
+import { formatPhone, formatCNPJ } from './utils';
+
+// Icons
+import { 
+  Scissors, Calendar, FileText, Wallet, Settings, LogOut, 
+  UserCheck, Building, HelpCircle, Key, Phone, CheckSquare, Sparkles, Building2,
+  Menu, X, BarChart3, ShieldCheck, ShieldAlert, AlertCircle, CreditCard, Info
+} from 'lucide-react';
+
+// Subcomponents
+import AlertModal from './components/AlertModal';
+import DashboardAdmin from './components/DashboardAdmin';
+import ComandasKanban from './components/ComandasKanban';
+import FinanceiroDashboard from './components/FinanceiroDashboard';
+import RelatoriosDashboard from './components/RelatoriosDashboard';
+import ProfessionalDashboard from './components/ProfessionalDashboard';
+import AgendamentosList from './components/AgendamentosList';
+import ColecoesCrud from './components/ColecoesCrud';
+import ConfiguracoesTenancy from './components/ConfiguracoesTenancy';
+import GestaoModelloLogo from './components/GestaoModelloLogo';
+import SaaSManagerDashboard from './components/SaaSManagerDashboard';
+
+export default function App() {
+  // Authentication & Tenancy context states
+  const [userRole, setUserRole] = useState<'ADMIN' | 'PROFESSIONAL' | 'SAAS_ADMIN' | null>(null);
+  const [currentSalon, setCurrentSalon] = useState<Salon | null>(null);
+  const [currentProfessional, setCurrentProfessional] = useState<Professional | null>(null);
+
+  // Keep refs up-to-date to prevent stale closures in async sync effects
+  const userRoleRef = useRef(userRole);
+  const currentSalonRef = useRef(currentSalon);
+  const isSyncingRef = useRef(false);
+
+  useEffect(() => {
+    userRoleRef.current = userRole;
+  }, [userRole]);
+
+  useEffect(() => {
+    currentSalonRef.current = currentSalon;
+  }, [currentSalon]);
+
+  // Login Input fields
+  const [loginCNPJ, setLoginCNPJ] = useState('');
+  const [loginAdminPhone, setLoginAdminPhone] = useState('');
+  const [loginPhone, setLoginPhone] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginType, setLoginType] = useState<'ADMIN' | 'PROFESSIONAL'>('ADMIN');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginLock, setLoginLock] = useState<{ count: number; lockUntil: number | null }>({ count: 0, lockUntil: null });
+
+  // RATE LIMIT: bloqueia após 5 tentativas falhas consecutivas por 15 minutos
+  const LOGIN_MAX_ATTEMPTS = 5;
+  const LOGIN_LOCK_MS = 15 * 60 * 1000;
+
+  const checkLoginLock = (): boolean => {
+    if (loginLock.lockUntil && Date.now() < loginLock.lockUntil) {
+      const remainingMin = Math.ceil((loginLock.lockUntil - Date.now()) / 60000);
+      setLoginError(`Muitas tentativas falhas. Acesso bloqueado por ${remainingMin} minuto(s). Tente novamente mais tarde.`);
+      return true;
+    }
+    if (loginLock.lockUntil && Date.now() >= loginLock.lockUntil) {
+      setLoginLock({ count: 0, lockUntil: null });
+    }
+    return false;
+  };
+
+  const registerLoginFailure = () => {
+    const newCount = loginLock.count + 1;
+    if (newCount >= LOGIN_MAX_ATTEMPTS) {
+      const lockUntil = Date.now() + LOGIN_LOCK_MS;
+      setLoginLock({ count: newCount, lockUntil });
+      setLoginError(`Limite de ${LOGIN_MAX_ATTEMPTS} tentativas atingido. Acesso bloqueado por 15 minutos.`);
+    } else {
+      setLoginLock({ count: newCount, lockUntil: null });
+    }
+  };
+
+  const registerLoginSuccess = () => {
+    setLoginLock({ count: 0, lockUntil: null });
+  };
+
+  // SaaS Master Registration & Logins
+  const [isSaaSLogin, setIsSaaSLogin] = useState(false);
+  const [saasEmail, setSaasEmail] = useState('master@modello.com');
+  const [saasPassword, setSaasPassword] = useState(import.meta.env.VITE_SAAS_MASTER_PASSWORD || '');
+  const [selectedResetSalonId, setSelectedResetSalonId] = useState<string>('');
+  const [resetConfirmTargetId, setResetConfirmTargetId] = useState<string | null>(null);
+  const [resetSuccessAlert, setResetSuccessAlert] = useState<string | null>(null);
+
+  // Active Admin workspace Tab
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'agendamentos' | 'comandas' | 'financeiro' | 'relatorios' | 'colecoes' | 'configuracoes'>('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Loaded database synchronized arrays
+  const [salons, setSalons] = useState<Salon[]>([]);
+  const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [comandas, setComandas] = useState<Comanda[]>([]);
+  const [financials, setFinancials] = useState<FinancialRecord[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [charts, setCharts] = useState<ChartAccountGroup[]>([]);
+  const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
+  const [cardAcquirers, setCardAcquirers] = useState<CardAcquirer[]>([]);
+
+  // Subscription, local warnings, and billing simulator states
+  const [dismissedWarning, setDismissedWarning] = useState<boolean>(false);
+  const [showStripeSuccessModal, setShowStripeSuccessModal] = useState<boolean>(false);
+  const [alertState, setAlertState] = useState<{message: string; variant?: 'info' | 'success' | 'error'} | null>(null);
+  const [restrictedActionName, setRestrictedActionName] = useState<string | null>(null);
+
+  // Load and pull real database on initialization to ensure consistency and prevent data resets
+  useEffect(() => {
+    const fetchAndInitialize = async () => {
+      try {
+        const res = await fetch("/api/supa-pull");
+        const data = await res.json();
+        
+        if (res.ok && data && data.success && !data.isMock) {
+          console.log("[Database Pull] Sincronizando dados autoritativos do Supabase na inicialização...");
+          
+          // Merge PIX fields from localStorage into server data (server may strip unknown fields)
+          const localSalonsBefore = loadSalons();
+          const mergedTenants = (data.tenants || []).map((serverSalon: any) => {
+            const localSalon = localSalonsBefore.find((s: any) => s.id === serverSalon.id);
+            if (localSalon) {
+              return {
+                ...serverSalon,
+              };
+            }
+            return serverSalon;
+          });
+          saveSalons(mergedTenants);
+          saveProfessionals(data.professionals || []);
+          saveServices(data.services || []);
+          saveProducts(data.products || []);
+          saveClients(data.clients || []);
+          saveComandas(data.comandas || []);
+          saveFinancials(data.financials || []);
+          saveAppointments(data.appointments || []);
+          
+          setSalons(mergedTenants);
+          setProfessionals(loadProfessionals());
+          setServices(loadServices());
+          setProducts(loadProducts());
+          setClients(loadClients());
+          setComandas(loadComandas());
+          setFinancials(loadFinancials());
+          setAppointments(loadAppointments());
+        } else {
+          console.log("[Database Pull] Iniciando em modo offline sandbox usando dados de localStorage.");
+          setSalons(loadSalons());
+          setProfessionals(loadProfessionals());
+          setServices(loadServices());
+          setProducts(loadProducts());
+          setClients(loadClients());
+          setComandas(loadComandas());
+          setFinancials(loadFinancials());
+          setAppointments(loadAppointments());
+        }
+      } catch (err) {
+        console.warn("[Database Pull Fail] Falha ao tentar puxar banco de dados na inicialização, usando dados locais:", err);
+        setSalons(loadSalons());
+        setProfessionals(loadProfessionals());
+        setServices(loadServices());
+        setProducts(loadProducts());
+        setClients(loadClients());
+        setComandas(loadComandas());
+        setFinancials(loadFinancials());
+        setAppointments(loadAppointments());
+      }
+      
+      // Load configurations
+      setCharts(loadCharts());
+      setServiceCategories(loadServiceCategories());
+      setCardAcquirers(loadCardAcquirers());
+
+      // Run 2026 professionals migration
+      runProfessionalsMigration2026();
+    };
+
+    fetchAndInitialize();
+  }, []);
+
+  // Show migration report when available
+  useEffect(() => {
+    const report = getLastProfessionalsMigrationReport();
+    if (report && (report.created.length > 0 || report.updated.length > 0 || report.conflicts.length > 0)) {
+      const lines: string[] = [];
+      if (report.created.length) lines.push(`✅ Criados: ${report.created.join(', ')}`);
+      if (report.updated.length) lines.push(`🔄 Atualizados: ${report.updated.join(', ')}`);
+      if (report.skipped.length) lines.push(`⏭️ Ignorados: ${report.skipped.join(', ')}`);
+      if (report.conflicts.length) lines.push(`⚠️ Conflitos: ${report.conflicts.join(', ')}`);
+      setAlertState({ message: 'Migração de Colaboradores 2026\n' + lines.join('\n'), variant: 'info' });
+      console.log('[Migração 2026] Relatório completo:', JSON.stringify(report, null, 2));
+    }
+  }, []);
+
+  // Listen and process simulated/real Stripe Checkout redirects
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    
+    // 1. Processamento de redirecionamento real do Stripe Checkout usando backend de verificação segura (fallback robusto sem webhooks públicos)
+    if (params.get("stripe_session_id")) {
+      const sessionId = params.get("stripe_session_id")!;
+      const sId = params.get("salon_id") || (currentSalon?.id);
+      
+      const verifyRealPayment = async () => {
+        try {
+          const response = await fetch("/api/verify-checkout-session", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ sessionId, salonId: sId })
+          });
+          const data = await response.json();
+          if (response.ok && data.success) {
+            const list = loadSalons();
+            const foundIdx = list.findIndex(s => s.id === data.salonId);
+            if (foundIdx !== -1) {
+              const updatedSalonItem = {
+                ...list[foundIdx],
+                expirationDate: data.expirationDate,
+                isActive: data.isActive
+              };
+              list[foundIdx] = updatedSalonItem;
+              saveSalons(list);
+              setSalons(list);
+              setCurrentSalon(updatedSalonItem);
+              setShowStripeSuccessModal(true);
+              
+              // Se não estiver logado como administrador, força login para usabilidade impecável!
+              if (!userRole) {
+                setUserRole('ADMIN');
+                setProfessionals(loadProfessionals(data.salonId));
+                setServices(loadServices(data.salonId));
+                setProducts(loadProducts(data.salonId));
+                setClients(loadClients(data.salonId));
+                setComandas(loadComandas(data.salonId));
+                setFinancials(loadFinancials(data.salonId));
+                setAppointments(loadAppointments(data.salonId));
+                setCharts(loadCharts(data.salonId));
+                setServiceCategories(loadServiceCategories(data.salonId));
+                setCardAcquirers(loadCardAcquirers(data.salonId));
+                setActiveTab('configuracoes');
+              } else {
+                setActiveTab('configuracoes');
+              }
+            }
+          } else {
+            console.error("Erro na verificação da sessão Stripe pelo backend:", data.error);
+            setAlertState({message: "Sua transação Stripe foi concluída, mas o servidor local relatou um erro ao atualizar: " + (data.error || "Erro de persistência."), variant: 'error'});
+          }
+        } catch (err: any) {
+          console.error("Falha ao comunicar verificação da sessão Stripe:", err);
+          setAlertState({message: "Erro de comunicação ao validar a ativação da sua licença: " + err.message, variant: 'error'});
+        } finally {
+          const newPath = window.location.pathname;
+          window.history.replaceState({}, document.title, newPath);
+        }
+      };
+      
+      verifyRealPayment();
+    }
+    
+    // 2. Processamento do checkout simulado / mock
+    if (params.get("mock_checkout_success") === "true") {
+      const sId = params.get("salon_id") || (currentSalon?.id);
+      if (sId) {
+        const list = loadSalons();
+        const foundIdx = list.findIndex(s => s.id === sId);
+        if (foundIdx !== -1) {
+          const salonItem = list[foundIdx];
+          
+          let newDate = new Date();
+          if (salonItem.expirationDate) {
+            const currentExp = new Date(salonItem.expirationDate + "T23:59:59");
+            const today = new Date();
+            if (currentExp > today) {
+              newDate = new Date(currentExp);
+              newDate.setMonth(newDate.getMonth() + 1);
+            } else {
+              newDate.setMonth(newDate.getMonth() + 1);
+            }
+          } else {
+            newDate.setMonth(newDate.getMonth() + 1);
+          }
+ 
+          const formattedExp = newDate.toISOString().substring(0, 10);
+          const updatedSalonItem = {
+            ...salonItem,
+            expirationDate: formattedExp,
+            isActive: true
+          };
+ 
+          list[foundIdx] = updatedSalonItem;
+          saveSalons(list);
+          setSalons(list);
+          setCurrentSalon(updatedSalonItem);
+          setShowStripeSuccessModal(true);
+          
+          if (!userRole) {
+            setUserRole('ADMIN');
+            setProfessionals(loadProfessionals(sId));
+            setServices(loadServices(sId));
+            setProducts(loadProducts(sId));
+            setClients(loadClients(sId));
+            setComandas(loadComandas(sId));
+            setFinancials(loadFinancials(sId));
+            setAppointments(loadAppointments(sId));
+            setCharts(loadCharts(sId));
+            setServiceCategories(loadServiceCategories(sId));
+            setCardAcquirers(loadCardAcquirers(sId));
+            setActiveTab('configuracoes');
+          } else {
+            setActiveTab('configuracoes');
+          }
+ 
+          const newPath = window.location.pathname;
+          window.history.replaceState({}, document.title, newPath);
+        }
+      }
+    }
+  }, [currentSalon, userRole]);
+
+  // Calcula dias restantes de licença com matemática precisa
+  const getSubscriptionDaysRemaining = () => {
+    if (!currentSalon || !currentSalon.expirationDate) return 999;
+    const expDate = new Date(currentSalon.expirationDate + "T23:59:59");
+    const today = new Date();
+    
+    const expMid = new Date(expDate.getFullYear(), expDate.getMonth(), expDate.getDate());
+    const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    
+    const diffTime = expMid.getTime() - todayMid.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
+  const isRestrictedModeActive = () => {
+    if (!currentSalon) return false;
+    if (userRole === "SAAS_ADMIN") return false; // SaaS manager is exempt
+    const days = getSubscriptionDaysRemaining();
+    return days < 0;
+  };
+
+  // Intercepta e bloqueia alterações no banco se o sistema estiver bloqueado
+  const isMutationBlocked = (actionName: string) => {
+    if (isRestrictedModeActive()) {
+      setRestrictedActionName(actionName);
+      return true;
+    }
+    return false;
+  };
+
+  // Inicia checkout real/simulado no Stripe através do backend fullstack
+  const handleLaunchStripeCheckout = async () => {
+    if (!currentSalon) return;
+    try {
+      const cleanDomain = currentSalon.name
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // remove acentuação
+        .replace(/[^a-z0-9]/g, ""); // remove caracteres especiais
+
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          salonId: currentSalon.id,
+          customerEmail: "financeiro@" + (cleanDomain || "salao") + ".com.br",
+          successUrl: window.location.origin + "/?stripe_session_id={CHECKOUT_SESSION_ID}&salon_id=" + currentSalon.id,
+          cancelUrl: window.location.origin + "/"
+        })
+      });
+      const data = await response.json();
+      
+      if (data.isMock) {
+        // PERFEITO! Se for Mock/Simulação (sem chave Stripe real), renova imediatamente
+        // no próprio estado React/localstorage, evitando bugs de redirecionamentos de iframe no sandbox!
+        const list = loadSalons();
+        const updated = list.map(s => {
+          if (s.id === currentSalon.id) {
+            const currentExp = s.expirationDate ? new Date(s.expirationDate) : new Date();
+            const baseDate = currentExp.getTime() < Date.now() ? new Date() : currentExp;
+            baseDate.setDate(baseDate.getDate() + 30);
+            
+            const yyyy = baseDate.getFullYear();
+            const mm = String(baseDate.getMonth() + 1).padStart(2, '0');
+            const dd = String(baseDate.getDate()).padStart(2, '0');
+            
+            return {
+              ...s,
+              expirationDate: `${yyyy}-${mm}-${dd}`,
+              isActive: true
+            };
+          }
+          return s;
+        });
+        
+        triggerUpdateSalons(updated);
+        // Atualiza também o salão atual para refletir na interface na hora
+        const updatedSalon = updated.find(s => s.id === currentSalon.id);
+        if (updatedSalon) {
+          setCurrentSalon(updatedSalon);
+        }
+        setShowStripeSuccessModal(true);
+        console.log("[Simulation] Renovação de assinatura realizada com êxito diretamente no navegador (desvio de bloqueio de iframe do sandbox).");
+      } else if (data.url) {
+        // Se temos uma URL de pagamento real, tentamos abrir em uma nova aba primeiro (para evitar que seja bloqueado pelo X-Frame-Options do Stripe que impede renderizar dentro de um iframe).
+        // Se abrir uma nova janela/aba falhar (ex: bloqueador de popups), realizamos redirecionamento do frame principal (window.top) ou diretamente no frame atual como redundância extrema.
+        try {
+          const win = window.open(data.url, '_blank');
+          if (!win || win.closed || typeof win.closed === 'undefined') {
+            if (window.top) {
+              window.top.location.href = data.url;
+            } else {
+              window.location.href = data.url;
+            }
+          }
+        } catch (popupErr) {
+          try {
+            if (window.top) {
+              window.top.location.href = data.url;
+            } else {
+              window.location.href = data.url;
+            }
+          } catch (innerErr) {
+            window.location.href = data.url;
+          }
+        }
+      } else {
+        setAlertState({message: "Erro ao gerar sessão de faturamento: " + data.error, variant: 'error'});
+      }
+    } catch (err: any) {
+      setAlertState({message: "Falha ao comunicar com o servidor de faturamento: " + err.message, variant: 'error'});
+    }
+  };
+  
+  // Sincronização Automática em segundo plano com o Supabase Cloud
+  const [isAutoSyncing, setIsAutoSyncing] = useState<boolean>(false);
+  const [lastAutoSyncTime, setLastAutoSyncTime] = useState<string | null>(null);
+
+  const performAutoSync = async (force: boolean = false) => {
+    if (!force && (isSyncingRef.current || isAutoSyncing)) return;
+    isSyncingRef.current = true;
+    setIsAutoSyncing(true);
+    try {
+      const payload = {
+        isSaaSAdmin: userRoleRef.current === 'SAAS_ADMIN',
+        tenants: loadSalons(),
+        professionals: loadProfessionals(),
+        services: loadServices(),
+        products: loadProducts(),
+        clients: loadClients(),
+        comandas: loadComandas(),
+        financials: loadFinancials(),
+        appointments: loadAppointments()
+      };
+
+      const response = await fetch("/api/supa-sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (data) {
+        // Se o servidor retornou os dados atualizados reais dos inquilinos (salões), atualiza no estado e local storage!
+        // Fazemos isso independente de data.success para garantir que as atualizações de licenças e limites corporativos nunca fiquem presas por erros em tabelas secundárias.
+        if (Array.isArray(data.tenants)) {
+          // Merge server data with local PIX fields (server may strip unknown fields)
+          const mergedTenants = data.tenants.map((serverSalon: any) => {
+            const localSalon = salons.find(s => s.id === serverSalon.id);
+            if (localSalon) {
+              return {
+                ...serverSalon,
+              };
+            }
+            return serverSalon;
+          });
+          triggerUpdateSalons(mergedTenants);
+          
+          // Se houver um salão selecionado no momento, vamos atualizar a referência do currentSalon para refletir e exibir a nova data de expiração imediatamente!
+          const activeSalon = currentSalonRef.current;
+          if (activeSalon) {
+            const updatedCurrent = mergedTenants.find((s: any) => s.id === activeSalon.id);
+            if (updatedCurrent) {
+              setCurrentSalon(updatedCurrent);
+            }
+          }
+        }
+
+        if (data.success) {
+          setLastAutoSyncTime(new Date().toLocaleTimeString('pt-BR'));
+          console.log(`[Database Auto-Sync] Todos os dados sincronizados em segundo plano com sucesso às ${new Date().toLocaleTimeString('pt-BR')}`);
+        }
+      }
+    } catch (err) {
+      console.warn("[Background Sync] Servidor ocupado ou offline. Os dados permanecem guardados localmente com segurança.", err);
+    } finally {
+      setIsAutoSyncing(false);
+      isSyncingRef.current = false;
+    }
+  };
+
+  // 1. Agenda uma execução periódica em segundo plano a cada 45 segundos
+  useEffect(() => {
+    // Primeira sincronização após carregar os estados iniciais
+    const initialSyncTimer = setTimeout(() => {
+      performAutoSync();
+    }, 3000);
+
+    const intervalTimer = setInterval(() => {
+      performAutoSync();
+    }, 45000);
+
+    return () => {
+      clearTimeout(initialSyncTimer);
+      clearInterval(intervalTimer);
+    };
+  }, []);
+
+  // 2. Dispara sincronização inteligente após alterações nos cadastros e comandas (debounced em 5 segundos)
+  useEffect(() => {
+    // Evita loop no primeiro carregamento em lote de arrays vazios antes do mount
+    if (salons.length === 0) return;
+
+    const delayDebounce = setTimeout(() => {
+      performAutoSync();
+    }, 5000);
+
+    return () => clearTimeout(delayDebounce);
+  }, [salons, professionals, services, products, clients, comandas, financials, appointments]);
+
+  // Multi-Tenant state save adapters
+  const triggerUpdateSalons = (list: Salon[]) => {
+    setSalons(list);
+    saveSalons(list);
+  };
+
+  const triggerUpdateProfessionals = (list: Professional[]) => {
+    if (isMutationBlocked("Salvar Colaboradores")) return;
+    // Save to all backend array
+    const all = loadProfessionals();
+    const updated = all.filter(p => p.salonId !== currentSalon?.id).concat(list);
+    setProfessionals(list);
+    saveProfessionals(updated);
+  };
+
+  const triggerUpdateServices = (list: Service[]) => {
+    if (isMutationBlocked("Salvar Serviços")) return;
+    const all = loadServices();
+    const updated = all.filter(s => s.salonId !== currentSalon?.id).concat(list);
+    setServices(list);
+    saveServices(updated);
+  };
+
+  const triggerUpdateProducts = (list: Product[]) => {
+    if (isMutationBlocked("Salvar Produtos")) return;
+    const all = loadProducts();
+    const updated = all.filter(p => p.salonId !== currentSalon?.id).concat(list);
+    setProducts(list);
+    saveProducts(updated);
+  };
+
+  const triggerUpdateClients = (list: Client[]) => {
+    if (isMutationBlocked("Salvar Clientes")) return;
+    const all = loadClients();
+    const updated = all.filter(c => c.salonId !== currentSalon?.id).concat(list);
+    setClients(list);
+    saveClients(updated);
+  };
+
+  const triggerUpdateAppointments = (list: Appointment[]) => {
+    if (isMutationBlocked("Salvar Agendamentos")) return;
+    const all = loadAppointments();
+    const updated = all.filter(a => a.salonId !== currentSalon?.id).concat(list);
+    setAppointments(list);
+    saveAppointments(updated);
+  };
+
+  const triggerUpdateCharts = (list: ChartAccountGroup[]) => {
+    if (isMutationBlocked("Salvar Plano de Contas")) return;
+    const all = loadCharts();
+    const updated = all.filter(c => c.salonId !== currentSalon?.id).concat(list);
+    setCharts(list);
+    saveCharts(updated);
+  };
+
+  const triggerUpdateServiceCategories = (list: ServiceCategory[]) => {
+    if (isMutationBlocked("Salvar Categorias")) return;
+    const all = loadServiceCategories();
+    const updated = all.filter(sc => sc.salonId !== currentSalon?.id).concat(list);
+    setServiceCategories(list);
+    saveServiceCategories(updated);
+  };
+
+  const triggerUpdateCardAcquirers = (list: CardAcquirer[]) => {
+    if (isMutationBlocked("Salvar Configurações de Taxa")) return;
+    const all = loadCardAcquirers();
+    const updated = all.filter(a => a.salonId !== currentSalon?.id).concat(list);
+    setCardAcquirers(list);
+    saveCardAcquirers(updated);
+  };
+
+  // Comanda status trigger updates with active financial logging
+  const handleAddComandaObj = (newComanda: Comanda) => {
+    if (isMutationBlocked("Criar Comanda")) return;
+    const { comanda, triggeredFinance } = addComandaAndUpdateFinance(newComanda);
+    
+    // Update active states
+    setComandas(prev => [...prev, comanda]);
+    if (triggeredFinance.length > 0) {
+      setFinancials(prev => [...prev, ...triggeredFinance]);
+    }
+  };
+
+  const handleUpdateComandaObj = (updatedComanda: Comanda) => {
+    if (isMutationBlocked("Atualizar Comanda")) return;
+    const all = loadComandas();
+    const idx = all.findIndex(c => c.id === updatedComanda.id);
+    if (idx !== -1) {
+      all[idx] = updatedComanda;
+      saveComandas(all);
+      if (currentSalon) {
+        setComandas(all.filter(c => c.salonId === currentSalon.id));
+      }
+    }
+  };
+
+  const handleUpdateComandaStatus = (id: string, newStatus: ComandaStatus, payment?: any, isFiado?: boolean, cardDetails?: any, pixPayload?: string) => {
+    if (isMutationBlocked("Dar Baixa de Pagamento na Comanda")) return;
+    const updated = updateComandaStatus(id, newStatus, payment, isFiado, cardDetails, pixPayload);
+    if (updated) {
+      // Reload comandas and financials
+      if (currentSalon) {
+        setComandas(loadComandas(currentSalon.id));
+        setFinancials(loadFinancials(currentSalon.id));
+        setClients(loadClients(currentSalon.id));
+      }
+    }
+  };
+
+  const handleDeleteComandaObj = (id: string) => {
+    if (isMutationBlocked("Excluir Comanda")) return;
+    const allComandas = loadComandas();
+    const filtered = allComandas.filter(c => c.id !== id);
+    saveComandas(filtered);
+    if (currentSalon) {
+      setComandas(filtered.filter(c => c.salonId === currentSalon.id));
+    }
+
+    // Estorna os registros financeiros vinculados à comanda excluída (receita e comissões)
+    const allFinancials = loadFinancials();
+    const filteredFinancials = allFinancials.filter(f => f.relatedComandaId !== id);
+    saveFinancials(filteredFinancials);
+    if (currentSalon) {
+      setFinancials(filteredFinancials.filter(f => f.salonId === currentSalon.id));
+    }
+  };
+
+  const handleAddFinancialRecordObj = (record: FinancialRecord) => {
+    if (isMutationBlocked("Adicionar Lançamento Financeiro")) return;
+    const allFinancials = loadFinancials();
+    allFinancials.push(record);
+    saveFinancials(allFinancials);
+    if (currentSalon) {
+      setFinancials(allFinancials.filter(f => f.salonId === currentSalon.id));
+    }
+  };
+
+  const handleUpdateFinancialRecordObj = (updatedRecord: FinancialRecord) => {
+    if (isMutationBlocked("Atualizar Lançamento Financeiro")) return;
+    const all = loadFinancials();
+    const idx = all.findIndex(f => f.id === updatedRecord.id);
+    if (idx !== -1) {
+      all[idx] = updatedRecord;
+      saveFinancials(all);
+
+      // Bidirectional sync: if this has a related comanda, update it too
+      if (updatedRecord.relatedComandaId) {
+        const allComandas = loadComandas();
+        const cIdx = allComandas.findIndex(c => c.id === updatedRecord.relatedComandaId);
+        if (cIdx !== -1) {
+          allComandas[cIdx].totalValue = updatedRecord.amount;
+          if (updatedRecord.status === 'pago') {
+            allComandas[cIdx].isFiado = false;
+            allComandas[cIdx].paymentMethod = 'Pix';
+            allComandas[cIdx].paymentDate = updatedRecord.paymentDate || new Date().toISOString().split('T')[0];
+          } else {
+            allComandas[cIdx].isFiado = true;
+            allComandas[cIdx].paymentMethod = 'Caderno';
+          }
+          saveComandas(allComandas);
+          if (currentSalon) {
+            setComandas(allComandas.filter(c => c.salonId === currentSalon.id));
+          }
+        }
+      }
+
+      if (currentSalon) {
+        setFinancials(all.filter(f => f.salonId === currentSalon.id));
+      }
+    }
+  };
+
+  const handleDeleteFinancialRecordObj = (id: string) => {
+    if (isMutationBlocked("Excluir Lançamento Financeiro")) return;
+    const all = loadFinancials();
+    const targetRecord = all.find(f => f.id === id);
+    const filtered = all.filter(f => f.id !== id);
+    saveFinancials(filtered);
+
+    // Bidirectional sync: if this has a related comanda, delete it too
+    if (targetRecord && targetRecord.relatedComandaId) {
+      const allComandas = loadComandas();
+      const filteredComandas = allComandas.filter(c => c.id !== targetRecord.relatedComandaId);
+      saveComandas(filteredComandas);
+      if (currentSalon) {
+        setComandas(filteredComandas.filter(c => c.salonId === currentSalon.id));
+      }
+    }
+
+    if (currentSalon) {
+      setFinancials(filtered.filter(f => f.salonId === currentSalon.id));
+    }
+  };
+
+  // Settle Accounts Receivables "No Caderno" Debt
+  const handleSettleDebtObj = (comandaId: string) => {
+    if (isMutationBlocked("Liquidar Débito no Cadastro")) return;
+    const allComandas = loadComandas();
+    const cIdx = allComandas.findIndex(c => c.id === comandaId);
+    if (cIdx !== -1) {
+      allComandas[cIdx].isFiado = false;
+      allComandas[cIdx].paymentMethod = 'Pix';
+      allComandas[cIdx].paymentDate = new Date().toISOString().split('T')[0];
+      saveComandas(allComandas);
+    }
+
+    // Update financial record entries
+    const allFinancials = loadFinancials();
+    // Locate revenue for this comanda and mark as "pago"
+    const fIdx = allFinancials.findIndex(f => f.relatedComandaId === comandaId && f.type === 'receita');
+    if (fIdx !== -1) {
+      allFinancials[fIdx].status = 'pago';
+      allFinancials[fIdx].category = 'Serviço';
+    }
+
+    // Locate commission expenses and mark as "pago"
+    allFinancials.forEach((f, idx) => {
+      if (f.relatedComandaId === comandaId && f.type === 'despesa') {
+        allFinancials[idx].status = 'pago';
+      }
+    });
+
+    saveFinancials(allFinancials);
+
+    // Refresh active views
+    if (currentSalon) {
+      setComandas(allComandas.filter(c => c.salonId === currentSalon.id));
+      setFinancials(allFinancials.filter(f => f.salonId === currentSalon.id));
+    }
+  };
+
+  // Convert booked appointment into Comanda
+  const handleConvertAppToComandaObj = (app: Appointment) => {
+    if (isMutationBlocked("Converter Agendamento em Comanda")) return;
+    const nextTicketNumber = `CMD-000${comandas.length + 1}`;
+    
+    let comandaServicesList = [];
+
+    if (app.services && app.services.length > 0) {
+      comandaServicesList = app.services.map(s => {
+        const serviceProfId = (s as any).professionalId || app.professionalId;
+        const serviceProfObj = professionals.find(p => p.id === serviceProfId);
+        const serviceCRate = serviceProfObj ? serviceProfObj.commissionRate : 30;
+        const serviceCommissionVal = (s.price * serviceCRate) / 100;
+        return {
+          id: s.id,
+          name: s.name,
+          price: s.price,
+          professionalId: serviceProfId,
+          professionalName: serviceProfObj ? serviceProfObj.name : (s as any).professionalName || app.professionalName,
+          commissionRate: serviceCRate,
+          commissionValue: serviceCommissionVal
+        };
+      });
+    } else {
+      const profObj = professionals.find(p => p.id === app.professionalId);
+      const cRate = profObj ? profObj.commissionRate : 30;
+      const cValue = (app.price * cRate) / 100;
+      comandaServicesList = [{
+        id: app.serviceId,
+        name: app.serviceName,
+        price: app.price,
+        professionalId: app.professionalId,
+        professionalName: app.professionalName,
+        commissionRate: cRate,
+        commissionValue: cValue
+      }];
+    }
+
+    const totalVal = comandaServicesList.reduce((sum, s) => sum + s.price, 0);
+
+    const newComanda: Comanda = {
+      id: 'cmd_' + Math.random().toString(36).substr(2, 9),
+      salonId: app.salonId,
+      ticketNumber: nextTicketNumber,
+      clientId: app.clientId,
+      clientName: app.clientName,
+      clientPhone: app.clientPhone,
+      services: comandaServicesList,
+      products: [],
+      totalValue: totalVal,
+      status: 'Aberto',
+      dateCreated: new Date().toISOString().substring(0, 16),
+      isFiado: false
+    };
+
+    handleAddComandaObj(newComanda);
+
+    // Remove appointment
+    handleDeleteAppointmentObj(app.id);
+  };
+
+  const handleDeleteAppointmentObj = (id: string) => {
+    const allAppts = loadAppointments();
+    const filtered = allAppts.filter(a => a.id !== id);
+    saveAppointments(filtered);
+    if (currentSalon) {
+      setAppointments(filtered.filter(a => a.salonId === currentSalon.id));
+    }
+  };
+
+  const handleAddAppointmentObj = (newApp: Appointment) => {
+    const allAppts = loadAppointments();
+    allAppts.push(newApp);
+    saveAppointments(allAppts);
+    if (currentSalon) {
+      setAppointments(allAppts.filter(a => a.salonId === currentSalon.id));
+    }
+  };
+
+  const handleUpdateAppointmentObj = (updatedApp: Appointment) => {
+    const all = loadAppointments();
+    const idx = all.findIndex(a => a.id === updatedApp.id);
+    if (idx !== -1) {
+      all[idx] = updatedApp;
+      saveAppointments(all);
+      if (currentSalon) {
+        setAppointments(all.filter(a => a.salonId === currentSalon.id));
+      }
+    }
+  };
+
+  // Salon multi-tenant registrations handler
+  const handleAddNewSalonObj = (newSalon: Salon) => {
+    const updated = [...salons, newSalon];
+    triggerUpdateSalons(updated);
+  };
+
+  const handleUpdateSalonObj = (updatedSalon: Salon) => {
+    const updated = salons.map(s => s.id === updatedSalon.id ? updatedSalon : s);
+    triggerUpdateSalons(updated);
+    if (currentSalon && currentSalon.id === updatedSalon.id) {
+      setCurrentSalon(updatedSalon);
+    }
+  };
+
+  const handleAddNewChartGroupObj = (group: ChartAccountGroup) => {
+    const updated = [...charts, group];
+    triggerUpdateCharts(updated);
+  };
+
+  const handleClearSalonData = (salonId: string) => {
+    clearSalonMovements(salonId);
+    if (currentSalon && currentSalon.id === salonId) {
+      setComandas([]);
+      setFinancials([]);
+      setAppointments([]);
+    }
+  };
+
+  const handleDeleteSalonFull = async (salonId: string, passwordConfirm: string): Promise<{ success: boolean; message?: string; error?: string }> => {
+    try {
+      const response = await fetch('/api/delete-tenant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: salonId, password: passwordConfirm })
+      });
+      const data = await response.json();
+      if (data.success) {
+        // 1. Apagar tudo do panel local/localStorage
+        deleteSalonDataFull(salonId);
+        
+        // 2. Atualizar estados locais do React
+        const remainingSalons = loadSalons();
+        setSalons(remainingSalons);
+        setProfessionals(loadProfessionals());
+        setServices(loadServices());
+        setProducts(loadProducts());
+        setClients(loadClients());
+        setComandas(loadComandas());
+        setFinancials(loadFinancials());
+        setAppointments(loadAppointments());
+        
+        // Se o salão deletado for o selecionado atualmente, limpa
+        if (currentSalon && currentSalon.id === salonId) {
+          setCurrentSalon(null);
+        }
+        
+        return { success: true, message: data.message };
+      } else {
+        return { success: false, error: data.error || 'Erro ao deletar do Supabase.' };
+      }
+    } catch (err: any) {
+      console.error('Erro ao deletar salão:', err);
+      return { success: false, error: err.message || 'Erro de conexão com o servidor.' };
+    }
+  };
+
+  // AUTHENTICATION LOGIC
+  const handleLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    if (checkLoginLock()) return;
+
+    // 1. Try Salon Admin Login with CNPJ, Admin Phone and Password
+    if (loginType === 'ADMIN') {
+      const cleanCNPJ = loginCNPJ.replace(/\D/g, '');
+      const foundSalon = salons.find(s => s.cnpj.replace(/\D/g, '') === cleanCNPJ);
+      
+      if (!foundSalon) {
+        registerLoginFailure();
+        setLoginError('Salão com o CNPJ informado não foi encontrado.');
+        return;
+      }
+
+      if (foundSalon.isActive === false) {
+        setLoginError('Este salão está inativo. Entre em contato com o administrador do SaaS.');
+        return;
+      }
+
+      // Search for an administrator in the professionals list of this salon
+      const allProfs = loadProfessionals();
+      const salonProfs = allProfs.filter(p => p.salonId === foundSalon.id);
+      const cleanAdminPhone = loginAdminPhone.replace(/\D/g, '');
+      const activeAdmins = salonProfs.filter(p => p.role === 'administrador' && p.isActive !== false);
+
+      let loggedAdmin: Professional | null = null;
+      const existingProfWithPhone = salonProfs.find(p => p.phone.replace(/\D/g, '') === cleanAdminPhone);
+
+      if (existingProfWithPhone) {
+        if (existingProfWithPhone.role !== 'administrador') {
+          setLoginError('Este colaborador está cadastrado como profissional. Por favor, use a aba "Profissional Colaborador" para acessar.');
+          return;
+        }
+        if (existingProfWithPhone.isActive === false) {
+          setLoginError('Este administrador está inativo.');
+          return;
+        }
+        if (existingProfWithPhone.password !== loginPassword) {
+          registerLoginFailure();
+          setLoginError('Senha incorreta para este administrador.');
+          return;
+        }
+        loggedAdmin = existingProfWithPhone;
+      } else {
+        if (foundSalon.password === loginPassword) {
+          const defaultAdmin: Professional = {
+            id: 'admin_sys_' + Math.random().toString(36).substr(2, 9),
+            salonId: foundSalon.id,
+            name: 'Administrador Principal',
+            phone: formatPhone(loginAdminPhone) || foundSalon.phone || '(11) 99999-9999',
+            password: loginPassword,
+            commissionRate: 0,
+            isActive: true,
+            category: 'Outros',
+            role: 'administrador'
+          };
+          const updated = [...allProfs, defaultAdmin];
+          saveProfessionals(updated);
+          loggedAdmin = defaultAdmin;
+        } else {
+          registerLoginFailure();
+          setLoginError('Administrador não localizado ou senha primária do salão incorreta.');
+          return;
+        }
+      }
+
+      if (loggedAdmin) {
+        setCurrentSalon(foundSalon);
+        setUserRole('ADMIN');
+        setCurrentProfessional(loggedAdmin);
+
+        // Load specific tenant sandbox arrays
+        setProfessionals(loadProfessionals(foundSalon.id));
+        setServices(loadServices(foundSalon.id));
+        setProducts(loadProducts(foundSalon.id));
+        setClients(loadClients(foundSalon.id));
+        setComandas(loadComandas(foundSalon.id));
+        setFinancials(loadFinancials(foundSalon.id));
+        setAppointments(loadAppointments(foundSalon.id));
+        setCharts(loadCharts(foundSalon.id));
+        setServiceCategories(loadServiceCategories(foundSalon.id));
+        setCardAcquirers(loadCardAcquirers(foundSalon.id));
+        
+        setActiveTab('dashboard');
+        registerLoginSuccess();
+        return;
+      } else {
+        registerLoginFailure();
+        setLoginError('Administrador colaborador não cadastrado, inativo ou senha inválida.');
+        return;
+      }
+    }
+
+    // 2. Try Professional Login with Telephone/Phone and Password
+    if (loginType === 'PROFESSIONAL') {
+      const cleanPhone = loginPhone.replace(/\D/g, '');
+      const foundProf = loadProfessionals().find(p => {
+        const pClean = p.phone.replace(/\D/g, '');
+        const matchPhone = pClean === cleanPhone;
+        const matchPassword = p.password === loginPassword;
+        // Accessible only for regular professionals, or we allow any non-administrator
+        return matchPhone && matchPassword && p.role !== 'administrador' && p.isActive !== false;
+      });
+      
+      if (foundProf) {
+        // Find associated salon
+        const matchSalon = salons.find(s => s.id === foundProf.salonId);
+        if (matchSalon) {
+          setCurrentSalon(matchSalon);
+        }
+        setCurrentProfessional(foundProf);
+        setUserRole('PROFESSIONAL');
+        
+        // Load comanda history for professional stats comparison
+        setComandas(loadComandas(matchSalon?.id));
+        registerLoginSuccess();
+        return;
+      } else {
+        registerLoginFailure();
+        setLoginError('Colaborador Profissional não encontrado, inativo ou senha inválida.');
+        return;
+      }
+    }
+
+    registerLoginFailure();
+    setLoginError('Credenciais inválidas ou senha incorreta para este salão.');
+  };
+
+  // Admin Direct quick demo shortcut filler
+  const handleQuickFill = (type: 'éclat_admin' | 'paula_prof') => {
+    if (type === 'éclat_admin') {
+      setLoginCNPJ('12.345.678/0001-90');
+      setLoginAdminPhone('(11) 98888-7777');
+      setLoginPhone('');
+      setLoginPassword('1234');
+      setLoginType('ADMIN');
+    } else {
+      setLoginCNPJ('');
+      setLoginAdminPhone('');
+      setLoginPhone('(11) 98111-1111'); // Julianna Ricci (Senior)'s phone
+      setLoginPassword('1234');
+      setLoginType('PROFESSIONAL');
+    }
+    setLoginError(null);
+  };
+
+  const handleLogout = () => {
+    setUserRole(null);
+    setCurrentSalon(null);
+    setCurrentProfessional(null);
+    setLoginError(null);
+    setLoginLock({ count: 0, lockUntil: null });
+    setActiveTab('dashboard');
+    setLoginCNPJ('');
+    setLoginAdminPhone('');
+    setLoginPhone('');
+    setLoginPassword('');
+  };
+
+  const handleSaaSLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    if (checkLoginLock()) return;
+
+    if (saasEmail.trim().toLowerCase() === 'master@modello.com' && saasPassword === (import.meta.env.VITE_SAAS_MASTER_PASSWORD || '')) {
+      setUserRole('SAAS_ADMIN');
+      setSalons(loadSalons());
+      setProfessionals(loadProfessionals());
+      registerLoginSuccess();
+      return;
+    }
+
+    registerLoginFailure();
+    setLoginError('Credenciais Master SaaS incorretas. Acesso restrito e auditado.');
+  };
+
+  // MAIN LOGIN VIEW RENDER
+  if (userRole === null) {
+    return (
+      <div className="min-h-screen bg-[#FCF9F2] flex flex-col justify-between items-center px-4 py-8 font-sans relative">
+        
+        {/* Sleek Floating Key for SaaS Owner Admin */}
+        <div className="w-full max-w-4xl flex justify-end px-4">
+          {isSaaSLogin ? (
+            <button
+              onClick={() => {
+                setIsSaaSLogin(false);
+                setLoginError(null);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-stone-900 hover:bg-[#a0854c] rounded-lg text-[10px] uppercase font-black tracking-widest text-[#FCF9F2] transition-all shadow-md cursor-pointer z-15"
+            >
+              ← Painel Clientes
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setIsSaaSLogin(true);
+                setLoginError(null);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-stone-900 hover:bg-[#a0854c] rounded-lg text-[10px] uppercase font-black tracking-widest text-[#FCF9F2] transition-all shadow-md cursor-pointer z-15"
+            >
+              <ShieldAlert className="w-4 h-4 text-[#e5b35f]" />
+              <span>Painel Franqueador Master</span>
+            </button>
+          )}
+        </div>
+
+        {/* Brand visual header */}
+        <div className="text-center space-y-1 mt-4">
+          <GestaoModelloLogo className="w-24 h-24 mx-auto" />
+          <h1 className="text-3xl font-serif font-black tracking-tight text-gray-950">Gestão Modello</h1>
+          <p className="text-xs text-stone-500 uppercase tracking-widest font-bold">
+            {isSaaSLogin ? 'Portal de Licenciamento & Sandboxes' : 'Plataforma SaaS Multi-Salões de Beleza'}
+          </p>
+        </div>
+
+        {/* Login Body Card */}
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gold-200/40 p-8 space-y-6 mt-4">
+          {isSaaSLogin ? (
+            /* SECURE MASTER SAAS LOGIN FORM */
+            <>
+              <div className="text-center">
+                <span className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200 text-stone-900 text-[10px] font-bold px-2.5 py-1 rounded-full uppercase scale-95">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#a0854c]" />
+                  Conexão SaaS Master Habilitada
+                </span>
+                <h2 className="text-xl font-bold text-gray-900 tracking-tight font-serif mt-2.5">Portal de Controle Comercial</h2>
+                <p className="text-xs text-gray-400 mt-1">Conecte com credenciais criptografadas do licenciador.</p>
+              </div>
+
+              <form onSubmit={handleSaaSLoginSubmit} className="space-y-4">
+                {loginError && (
+                  <div className="p-3.5 bg-rose-50 border border-rose-250 text-rose-700 text-xs rounded-lg font-bold flex items-center gap-2">
+                    <span>⚠️ {loginError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <label className="block text-stone-400 font-bold text-[10px] uppercase tracking-wider">E-mail Administrativo</label>
+                  <input
+                    type="email"
+                    required
+                    className="w-full px-4 py-3 bg-[#FCF9F2] rounded-lg border border-gray-200 focus:border-gold-500 focus:outline-none text-xs text-stone-900 font-bold"
+                    placeholder="master@modello.com"
+                    value={saasEmail}
+                    onChange={(e) => setSaasEmail(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-stone-400 font-bold text-[10px] uppercase tracking-wider">Código de Acesso Seguro (Senha)</label>
+                  <input
+                    type="password"
+                    required
+                    className="w-full px-4 py-3 bg-[#FCF9F2] rounded-lg border border-gray-200 focus:border-gold-500 focus:outline-none text-xs font-mono font-bold text-stone-950"
+                    placeholder="••••••••••••••"
+                    value={saasPassword}
+                    onChange={(e) => setSaasPassword(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-stone-950 hover:bg-[#a0854c] text-white font-serif font-black tracking-widest py-3.5 rounded-full shadow-md transition-all active:scale-95 cursor-pointer text-xs uppercase"
+                >
+                  Entrar no Painel Master
+                </button>
+              </form>
+
+              <div className="pt-4 border-t border-gray-100/60 text-center">
+                <span className="text-[10px] text-stone-400 font-medium">
+                  Nota: Use as chaves de teste demonstradas acima para auditar as sandboxes.
+                </span>
+              </div>
+            </>
+          ) : (
+            /* REGULAR CLIENT LOGIN FORM */
+            <>
+              <div className="text-center">
+                <h2 className="text-xl font-bold text-gray-900 tracking-tight font-serif">Acesse seu Ambiente</h2>
+                <p className="text-xs text-gray-400 mt-1">Insira os credenciais corporativas ou do profissional síncrono.</p>
+              </div>
+
+              <form onSubmit={handleLoginSubmit} className="space-y-4">
+                
+                {/* Input Selection tabs */}
+                <div className="flex gap-2 p-1 bg-[#FCF9F2] rounded-lg border border-gold-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginType('ADMIN');
+                    }}
+                    className={`flex-1 py-2 rounded-md font-sans text-xs font-bold text-center transition-all cursor-pointer ${
+                      loginType === 'ADMIN' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500'
+                    }`}
+                  >
+                    Painel Administrativo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginType('PROFESSIONAL');
+                    }}
+                    className={`flex-1 py-2 rounded-md font-sans text-xs font-bold text-center transition-all cursor-pointer ${
+                      loginType === 'PROFESSIONAL' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500'
+                    }`}
+                  >
+                    Espaço Profissional
+                  </button>
+                </div>
+
+                {/* ERROR DISPATCH */}
+                {loginError && (
+                  <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg font-bold flex items-center gap-2">
+                    <span>⚠️ {loginError}</span>
+                  </div>
+                )}
+
+                {/* FOR ADMINISTRATOR */}
+                {loginType === 'ADMIN' ? (
+                  <>
+                    <div className="space-y-1">
+                      <label className="block text-stone-400 font-bold text-[10px] uppercase tracking-wider">CNPJ da Empresa</label>
+                      <div className="relative">
+                        <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                        <input
+                          type="text"
+                          required
+                          className="w-full pl-9 pr-4 py-3 bg-[#FCF9F2] rounded-lg border border-gray-200 focus:border-gold-500 focus:outline-none text-xs text-gray-900 font-bold"
+                          placeholder="ex: 12.345.678/0001-90"
+                          value={loginCNPJ}
+                          onChange={(e) => setLoginCNPJ(formatCNPJ(e.target.value))}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <label className="block text-stone-400 font-bold text-[10px] uppercase tracking-wider">Telefone do Administrador Colaborador</label>
+                      <div className="relative">
+                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                        <input
+                          type="text"
+                          required
+                          className="w-full pl-9 pr-4 py-3 bg-[#FCF9F2] rounded-lg border border-gray-200 focus:border-gold-500 focus:outline-none text-xs text-gray-900 font-bold"
+                          placeholder="ex: (11) 98888-7777"
+                          value={loginAdminPhone}
+                          onChange={(e) => setLoginAdminPhone(formatPhone(e.target.value))}
+                        />
+                      </div>
+                      <span className="text-[9px] text-amber-600 block leading-tight font-medium mt-0.5">
+                        ⚠️ O telefone deve corresponder a um colaborador cadastrado com cargo de "Administrador".
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  // Phone Field for Professional
+                  <div className="space-y-1">
+                    <label className="block text-stone-400 font-bold text-[10px] uppercase tracking-wider">Telefone do Profissional</label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <input
+                        type="text"
+                        required
+                        className="w-full pl-9 pr-4 py-3 bg-[#FCF9F2] rounded-lg border border-gray-200 focus:border-gold-500 focus:outline-none text-xs text-gray-900"
+                        placeholder="ex: (11) 98111-1111"
+                        value={loginPhone}
+                        onChange={(e) => setLoginPhone(formatPhone(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Password input */}
+                <div className="space-y-1">
+                  <label className="block text-stone-400 font-bold text-[10px] uppercase tracking-wider">Senha Secreta</label>
+                  <div className="relative">
+                    <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input
+                      type="password"
+                      required
+                      className="w-full pl-9 pr-4 py-3 bg-[#FCF9F2] rounded-lg border border-gray-200 focus:border-gold-500 focus:outline-none text-xs font-mono font-bold"
+                      placeholder="••••"
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Submit checkout buttons */}
+                <button
+                  type="submit"
+                  className="w-full bg-black hover:bg-[#a0854c] text-white font-serif font-black tracking-wide py-3.5 rounded-full shadow-md transition-all active:scale-95 cursor-pointer text-xs"
+                >
+                  Autenticar Acesso Seguro
+                </button>
+              </form>
+
+
+            </>
+          )}
+        </div>
+
+        {/* Footer info lock down */}
+        <div className="text-center text-[10px] text-stone-400 w-full max-w-sm mt-4">
+          <p>© 2026 Gestão Modello SaaS Enterprise • Multi-Tenancy Isolado • Banco Local Ativo & Síncrono</p>
+        </div>
+
+      </div>
+    );
+  }
+
+  // RENDER PROFESSIONAL DESKTOP PORTAL DIRECT IF LOGGED IN
+  if (userRole === 'PROFESSIONAL' && currentProfessional) {
+    return (
+      <ProfessionalDashboard
+        professional={currentProfessional}
+        comandas={comandas}
+        salon={currentSalon}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  // RENDER SAAS CENTRAL MANAGER DASHBOARD PORTAL IF LOGGED IN
+  if (userRole === 'SAAS_ADMIN') {
+    return (
+      <SaaSManagerDashboard
+        salons={salons}
+        allProfessionals={professionals}
+        onAddSalon={(newSalon) => {
+          const updated = [...salons, newSalon];
+          setSalons(updated);
+          saveSalons(updated);
+          setTimeout(() => {
+            performAutoSync(true);
+          }, 200);
+        }}
+        onUpdateSalon={(updatedSalon) => {
+          const updated = salons.map(s => s.id === updatedSalon.id ? updatedSalon : s);
+          setSalons(updated);
+          saveSalons(updated);
+          if (currentSalon?.id === updatedSalon.id) {
+            setCurrentSalon(updatedSalon);
+          }
+          setTimeout(() => {
+            performAutoSync(true);
+          }, 200);
+        }}
+        onLogout={handleLogout}
+        onClearSalonData={handleClearSalonData}
+        triggerUpdateAllProfessionals={(updatedProfs) => {
+          setProfessionals(updatedProfs);
+          saveProfessionals(updatedProfs);
+        }}
+        onRecalculateCommissions={(salonId: string) => {
+          const res = recalculateAllCommissions(salonId);
+          // Force reload active comandas state
+          setComandas(loadComandas());
+          return res;
+        }}
+        onDeleteSalon={handleDeleteSalonFull}
+      />
+    );
+  }
+
+  // ADMINISTRATIVE CONSOLE WORKSPACE FOR SALON OWNER
+  return (
+    <div className="min-h-screen md:h-screen overflow-x-hidden md:overflow-hidden bg-[#FCF9F2] flex flex-col md:flex-row font-sans relative">
+      
+      {/* MOBILE STICKY HEADER TO AVOID EMPATHETIC CLUTTER AND SCROLL NOISE */}
+      <header className="sticky top-0 left-0 right-0 h-16 bg-black text-white flex items-center justify-between px-5 z-40 md:hidden border-b border-zinc-800 shrink-0 print:hidden">
+        <div className="flex items-center gap-2">
+          <GestaoModelloLogo className="w-8 h-8 shrink-0" variant="dark" />
+          <div className="leading-tight">
+            <h1 className="font-serif font-bold text-stone-200 text-xs tracking-tight line-clamp-1">{currentSalon?.name}</h1>
+            <span className="text-[8px] uppercase text-[#e5b35f] font-black tracking-widest">Admin</span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 border border-zinc-800 hover:border-zinc-500 rounded-lg text-stone-300 hover:text-white transition focus:outline-none cursor-pointer"
+        >
+          {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        </button>
+      </header>
+
+      {/* MOBILE BACKDROP DRAWER EFFECT */}
+      {isMobileMenuOpen && (
+        <div 
+          onClick={() => setIsMobileMenuOpen(false)}
+          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 md:hidden animate-fade-in print:hidden"
+        />
+      )}
+
+      {/* RESPONSIVE DRAWER SIDEBAR */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-64 bg-black text-white p-6 flex flex-col justify-between shrink-0 transform transition-transform duration-300 ease-in-out md:translate-x-0 md:static md:h-screen md:sticky md:top-0 print:hidden
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
+        <div>
+          {/* Corporate logo section */}
+          <div className="flex items-center justify-between pb-6 border-b border-zinc-800 mb-8 font-sans">
+            <div className="flex items-center gap-3">
+              <GestaoModelloLogo className="w-10 h-10 shrink-0" variant="dark" />
+              <div>
+                <h1 className="font-serif font-bold text-stone-200 tracking-tight leading-none text-sm">{currentSalon?.name}</h1>
+                {currentSalon?.id.startsWith('trial_') ? (
+                  <span className="bg-amber-500/10 text-[#e5b35f] text-[8px] font-bold px-1.5 py-0.5 rounded border border-amber-500/20 uppercase tracking-wider block mt-1 w-fit">
+                    ⚡ SaaS Trial: 7 dias de Teste
+                  </span>
+                ) : (
+                  <span className="text-[9px] text-stone-400 uppercase tracking-widest font-black block mt-1">Console Admin</span>
+                )}
+              </div>
+            </div>
+            {/* Close button on Mobile inside Aside */}
+            <button 
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="md:hidden text-stone-400 hover:text-white p-1 cursor-pointer"
+              title="Fechar Menu"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Tab buttons with ordered sidebar */}
+          <nav className="space-y-1">
+            {[
+              { id: 'dashboard', label: 'Dashboard', icon: Sparkles },
+              { id: 'agendamentos', label: 'Agendamentos', icon: Calendar },
+              { id: 'comandas', label: 'Comanda', icon: FileText },
+              { id: 'financeiro', label: 'Financeiro', icon: Wallet },
+              { id: 'relatorios', label: 'Relatórios', icon: BarChart3 },
+              { id: 'colecoes', label: 'Cadastro', icon: Scissors },
+              { id: 'configuracoes', label: 'Config Salão', icon: Settings }
+            ].map(item => {
+              const IconComp = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-xs font-bold font-sans transition-all cursor-pointer ${
+                    activeTab === item.id 
+                      ? 'bg-[#e5b35f] text-black font-extrabold shadow-sm' 
+                      : 'text-stone-400 hover:text-white hover:bg-zinc-900'
+                  }`}
+                >
+                  <IconComp className="w-4 h-4 shrink-0" />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Bottom account controls bar */}
+        <div className="pt-6 border-t border-stone-850 mt-8 space-y-4">
+          <div className="text-[11px] text-stone-500 font-medium">
+            <p className="text-white font-bold truncate">{currentSalon?.name}</p>
+            <p className="text-[9px] font-mono tracking-sans mt-0.5">{currentSalon?.cnpj}</p>
+          </div>
+
+          <button
+            onClick={() => {
+              handleLogout();
+              setIsMobileMenuOpen(false);
+            }}
+            className="w-full flex items-center justify-center gap-2 border border-zinc-800 hover:border-rose-400 text-stone-400 hover:text-rose-500 bg-transparent text-xs py-2.5 rounded-full transition-all cursor-pointer font-bold"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Encerrar Sessão</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* RIGHT MAIN CONTAINER SCROLL CONTEXT */}
+      <main className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-10 max-w-[1200px] mx-auto w-full print:p-0 print:m-0 print:max-w-none relative">
+        
+        {/* SaaS Subscription Alerts System */}
+        {currentSalon && (() => {
+          const days = getSubscriptionDaysRemaining();
+          const isRestricted = isRestrictedModeActive();
+
+          if (isRestricted) {
+            return (
+              <div className="mb-6 bg-rose-50 border-2 border-rose-600 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-rose-900 leading-normal animate-fade-in shadow-sm font-sans">
+                <div className="flex gap-3">
+                  <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block text-rose-950 font-extrabold text-sm">Modo Restrito Ativado: Assinatura Vencida!</strong>
+                    <p className="text-xs text-rose-800 leading-relaxed max-w-2xl mt-0.5">
+                      Sua assinatura do plano Modello Enterprise (vencida em {currentSalon.expirationDate}) expirou há {Math.abs(days)} {Math.abs(days) === 1 ? 'dia' : 'dias'}. O sistema está operando em <strong>Modo Restrito (Somente Leitura)</strong>. Inclusões, edições, baixas e cancelamentos estão temporariamente bloqueados.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleLaunchStripeCheckout}
+                  className="w-full md:w-auto shrink-0 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                >
+                  <CreditCard className="w-4 h-4 text-stone-100" />
+                  <span>Renovar Assinatura</span>
+                </button>
+              </div>
+            );
+          } else if (days === 0) {
+            return (
+              <div className="mb-6 bg-rose-50 border-2 border-red-300 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-red-900 leading-normal animate-fade-in shadow-xs font-sans">
+                <div className="flex gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5 animate-pulse" />
+                  <div>
+                    <strong className="block text-red-950 font-extrabold text-sm">Sua Assinatura SaaS Vence Hoje!</strong>
+                    <p className="text-xs text-rose-850 leading-relaxed mt-0.5">
+                      Evite a suspensão automática das escrituras comerciais do salão amanhã. Renove sua assinatura mensal de R$ 120,00 de maneira segura online.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleLaunchStripeCheckout}
+                  className="w-full md:w-auto shrink-0 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                >
+                  <CreditCard className="w-4 h-4 text-stone-100" />
+                  <span>Renovar Assinatura (R$ 120,00)</span>
+                </button>
+              </div>
+            );
+          } else if (days > 0 && days <= 3) {
+            return (
+              <div className="mb-6 bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-amber-900 leading-normal animate-fade-in shadow-2xs font-sans">
+                <div className="flex gap-3">
+                  <AlertCircle className="w-5 h-5 text-[#b06000] shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block text-[#703000] font-extrabold text-sm">Aviso de Vencimento: Bloqueio Iminente em {days} {days === 1 ? 'dia' : 'dias'}!</strong>
+                    <p className="text-xs text-amber-800 leading-relaxed mt-0.5 font-sans">
+                      Sua assinatura mensal vencerá em {currentSalon.expirationDate}. Evite a suspensão do registro de sessões, comandas e fluxos de caixa regulares do seu salão.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleLaunchStripeCheckout}
+                  className="w-full md:w-auto shrink-0 bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                >
+                  <CreditCard className="w-4 h-4 text-stone-150" />
+                  <span>Renovar Assinatura</span>
+                </button>
+              </div>
+            );
+          } else if (days > 3 && days <= 7 && !dismissedWarning) {
+            return (
+              <div className="mb-6 bg-[#FAF8F5] border border-stone-250 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-stone-700 leading-normal animate-fade-in shadow-2xs font-sans">
+                <div className="flex gap-3">
+                  <Info className="w-5 h-5 text-stone-500 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block text-stone-900 font-extrabold text-sm">Sua renovação está chegando</strong>
+                    <p className="text-xs text-stone-600 leading-relaxed mt-0.5">
+                      A assinatura mensal Enterprise de R$ 120,00 expira em {currentSalon.expirationDate} (restam {days} dias). Mantenha seu fluxo comercial ativo.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+                  <button
+                    onClick={handleLaunchStripeCheckout}
+                    className="text-white bg-zinc-950 hover:bg-black text-[11px] font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                  >
+                    <CreditCard className="w-3.5 h-3.5 text-stone-200" />
+                    <span>Pagar R$ 120</span>
+                  </button>
+                  <button
+                    onClick={() => setDismissedWarning(true)}
+                    className="text-stone-400 hover:text-stone-700 text-xs p-2 rounded-md hover:bg-stone-100 transition cursor-pointer"
+                    title="Fechar Aviso Temporariamente"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
+        {/* Restricted Mode Edit Blocks Intercept Modal */}
+        {restrictedActionName && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
+            <div className="bg-white rounded-2xl w-full max-w-md p-6 border-2 border-rose-600 shadow-2xl scale-in space-y-4 font-sans text-center animate-fade-in">
+              <div className="w-14 h-14 bg-rose-50 rounded-full flex items-center justify-center mx-auto border-2 border-rose-250 shadow-2xs">
+                <ShieldAlert className="w-7 h-7 text-rose-600 animate-pulse" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-lg font-black text-rose-950 leading-none">Acesso Bloqueado: Operação Restrita</h3>
+                <p className="text-xs text-rose-800 leading-relaxed px-2 mt-2">
+                  Você tentou executar a operação <strong>"{restrictedActionName}"</strong>, que está provisoriamente suspensa. O salão <strong>{currentSalon?.name}</strong> está sob regime de <strong>Modo Restrito (Somente Leitura)</strong> devido ao término do ciclo comercial.
+                </p>
+              </div>
+              <div className="bg-rose-50/50 rounded-xl p-3 border border-rose-100/75 text-left text-[10.5px] leading-relaxed text-rose-900">
+                Para voltar a lançar comandas, cadastrar atendimentos, computar comissões e realizar baixas financeiras normais, faça a renovação da sua assinatura mensal de R$ 120,00.
+              </div>
+              <div className="flex flex-col gap-2 pt-1.5">
+                <button
+                  onClick={async () => {
+                    setRestrictedActionName(null);
+                    await handleLaunchStripeCheckout();
+                  }}
+                  className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-2.5 rounded-lg shadow-sm hover:shadow-md transition cursor-pointer flex items-center justify-center gap-1.5 animate-pulse"
+                >
+                  <CreditCard className="w-4 h-4 text-stone-100" />
+                  <span>Renovar Assinatura (R$ 120,00)</span>
+                </button>
+                <button
+                  onClick={() => setRestrictedActionName(null)}
+                  className="w-full bg-stone-100 hover:bg-stone-200 text-stone-850 font-bold text-xs py-2.5 rounded-lg transition cursor-pointer"
+                >
+                  Continuar Apenas Visualizando Relatórios
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Stripe Payment Success Celebration Modal */}
+        {showStripeSuccessModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in animate-scale-in">
+            <div className="bg-white rounded-2xl w-full max-w-md p-6 border border-emerald-350 shadow-2xl text-center space-y-4 font-sans">
+              <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mx-auto border-2 border-emerald-200 shadow-2xs">
+                <ShieldCheck className="w-8 h-8 text-emerald-600" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-lg font-black text-emerald-950 leading-none">Assinatura Renovada com Sucesso!</h3>
+                <p className="text-xs text-emerald-850 leading-relaxed px-2 mt-2">
+                  Parabéns! O faturamento mensal de <strong>R$ 120,00</strong> foi detectado e processado com absoluto sucesso.
+                </p>
+              </div>
+              <div className="bg-[#e6f4ea] text-[#137333] border border-[#ceead6] p-3.5 rounded-lg text-xs leading-relaxed text-left space-y-1 font-sans">
+                <div className="flex justify-between font-bold"><span>Licença Atualizada:</span> <span className="font-mono text-stone-900">{currentSalon?.expirationDate ? currentSalon.expirationDate.split('-').reverse().join('/') : 'Ativo'}</span></div>
+                <div className="flex justify-between font-bold mt-0.5"><span>Situação da Licença:</span> <span className="text-[#137333]">Regularizado & Liberado!</span></div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowStripeSuccessModal(false);
+                  setDismissedWarning(false);
+                }}
+                className="w-full bg-zinc-950 hover:bg-black text-white font-bold text-xs py-2.5 rounded-lg shadow-sm transition cursor-pointer font-sans"
+              >
+                Acessar Painel Central do Salão
+              </button>
+            </div>
+          </div>
+        )}
+        
+        {/* RENDER DYNAMIC ACTIVE TAB */}
+        {activeTab === 'dashboard' && currentSalon && (
+          <DashboardAdmin
+            salonId={currentSalon.id}
+            comandas={comandas}
+            financials={financials}
+            professionals={professionals}
+            appointments={appointments}
+            onNavigateToTab={(tab) => setActiveTab(tab as any)}
+          />
+        )}
+
+        {activeTab === 'comandas' && currentSalon && (
+          <ComandasKanban
+            salonId={currentSalon.id}
+            salonName={currentSalon.name}
+            comandas={comandas}
+            clients={clients}
+            professionals={professionals}
+            services={services}
+            products={products}
+            serviceCategories={serviceCategories}
+            cardAcquirers={cardAcquirers}
+            onAddComanda={handleAddComandaObj}
+            onUpdateComandaObj={handleUpdateComandaObj}
+            onUpdateStatus={handleUpdateComandaStatus}
+            onDeleteComanda={handleDeleteComandaObj}
+            currentSalon={currentSalon}
+          />
+        )}
+
+        {activeTab === 'agendamentos' && currentSalon && (
+          <AgendamentosList
+            salonId={currentSalon.id}
+            appointments={appointments}
+            clients={clients}
+            professionals={professionals}
+            services={services}
+            onAddAppointment={handleAddAppointmentObj}
+            onUpdateAppointment={handleUpdateAppointmentObj}
+            onConvertAppointmentToComanda={handleConvertAppToComandaObj}
+            onDeleteAppointment={handleDeleteAppointmentObj}
+            onUpdateClients={triggerUpdateClients}
+          />
+        )}
+
+        {activeTab === 'financeiro' && currentSalon && (
+          <FinanceiroDashboard
+            salonId={currentSalon.id}
+            financials={financials}
+            comandas={comandas}
+            charts={charts}
+            professionals={professionals}
+            onAddFinancialRecord={handleAddFinancialRecordObj}
+            onUpdateFinancialRecord={handleUpdateFinancialRecordObj}
+            onDeleteFinancialRecord={handleDeleteFinancialRecordObj}
+            onSettleDebt={handleSettleDebtObj}
+            onUpdateComandaObj={handleUpdateComandaObj}
+          />
+        )}
+
+        {activeTab === 'relatorios' && currentSalon && (
+          <RelatoriosDashboard
+            salonId={currentSalon.id}
+            financials={financials}
+            comandas={comandas}
+            professionals={professionals}
+          />
+        )}
+
+        {activeTab === 'colecoes' && currentSalon && (
+          <ColecoesCrud
+            salonId={currentSalon.id}
+            maxProfessionals={currentSalon.maxProfessionals || 5}
+            maxAdmins={currentSalon.maxAdmins || 2}
+            professionals={professionals}
+            services={services}
+            products={products}
+            clients={clients}
+            serviceCategories={serviceCategories}
+            cardAcquirers={cardAcquirers}
+            onUpdateProfessionals={triggerUpdateProfessionals}
+            onUpdateServices={triggerUpdateServices}
+            onUpdateProducts={triggerUpdateProducts}
+            onUpdateClients={triggerUpdateClients}
+            onUpdateServiceCategories={triggerUpdateServiceCategories}
+            onUpdateCardAcquirers={triggerUpdateCardAcquirers}
+          />
+        )}
+
+        {activeTab === 'configuracoes' && (
+          <ConfiguracoesTenancy
+            salons={salons}
+            charts={charts}
+            serviceCategories={serviceCategories}
+            onAddSalon={handleAddNewSalonObj}
+            onUpdateSalon={handleUpdateSalonObj}
+            onAddChartGroup={handleAddNewChartGroupObj}
+            onUpdateServiceCategories={triggerUpdateServiceCategories}
+            userRole={userRole}
+            currentSalon={currentSalon}
+            onClearSalonData={handleClearSalonData}
+            daysRemaining={getSubscriptionDaysRemaining()}
+            isRestricted={isRestrictedModeActive()}
+            onLaunchStripeCheckout={handleLaunchStripeCheckout}
+            onSyncSuccess={(latestTenants) => {
+              const mergedTenants = latestTenants.map((serverSalon: any) => {
+                const localSalon = salons.find(s => s.id === serverSalon.id);
+                if (localSalon) {
+                  return {
+                    ...serverSalon,
+                  };
+                }
+                return serverSalon;
+              });
+              triggerUpdateSalons(mergedTenants);
+              if (currentSalon) {
+                const updatedCurrent = mergedTenants.find(s => s.id === currentSalon.id);
+                if (updatedCurrent) {
+                  setCurrentSalon(updatedCurrent);
+                }
+              }
+            }}
+          />
+        )}
+
+      </main>
+
+      <AlertModal
+        open={!!alertState}
+        message={alertState?.message || ''}
+        variant={alertState?.variant || 'error'}
+        onClose={() => setAlertState(null)}
+      />
+    </div>
+  );
+}

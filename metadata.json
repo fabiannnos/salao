@@ -1,0 +1,6 @@
+{
+  "name": "SaaS Gestão de Salão de Beleza",
+  "description": "Sistema completo de gestão para salão de beleza com multi-tenancy (multi-salões), cadastro de clientes, controle de comissão de profissionais, comandas interativas (Kanban), e dashboard financeiro completo (DRE, Contas a Pagar/Receber).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
