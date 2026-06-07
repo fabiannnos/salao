@@ -1674,7 +1674,9 @@ export default function App() {
             financials={financials}
             professionals={professionals}
             appointments={appointments}
-            onNavigateToTab={(tab) => setActiveTab(tab as any)}
+            onNavigateToTab={(tab) => {
+              if (!isTabBlocked(tab)) setActiveTab(tab as any);
+            }}
           />
         )}
 
