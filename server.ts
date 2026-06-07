@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import { tenantAccessGuard, invalidateTenantCache } from "./middleware/tenantAccessGuard";
 
 dotenv.config();
 
@@ -47,68 +48,7 @@ app.use((req, res, next) => {
   }
 });
 
-// Middleware centralizado de validação de Tenant, Assinatura e Bloqueios
-// Valida se o inquilino/salão está bloqueado (vencimento ultrapassado em D+1)
-const validateTenantSubscription = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const tenantId = req.headers["x-tenant-id"] as string;
-  if (!tenantId) {
-    return next(); // If no tenant ID is passed (e.g. general route), check next
-  }
-
-  // Permite login, leitura de dados (dashboard, relatórios e consultas) sempre
-  // Métodos de gravação perigosos são proibidos se bloqueado: POST, PUT, DELETE
-  const isMutation = ["POST", "PUT", "DELETE", "PATCH"].includes(req.method || "");
-  const isWebhookOrSession = req.originalUrl.includes("/api/checkout") || req.originalUrl.includes("/api/webhook");
-
-  if (!isMutation || isWebhookOrSession) {
-    return next();
-  }
-
-  try {
-    let expirationDateStr: string | null = null;
-    let isActive = true;
-
-    if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      // Real database check via Supabase
-      const supabase = getSupabase();
-      const { data: tenant, error } = await supabase
-        .from("tenants")
-        .select("expiration_date, is_active")
-        .eq("id", tenantId)
-        .single();
-
-      if (!error && tenant) {
-        expirationDateStr = tenant.expiration_date;
-        isActive = tenant.is_active;
-      }
-    } else {
-      // Memory/Local storage simulated fallback
-      // Simulated checks for common demo clients in local mode:
-      // If we are in standard offline-first mode, we can validate dates
-      // Let's assume validation will be checked in the frontend if database keys are not yet configured.
-    }
-
-    if (expirationDateStr) {
-      const expirationDate = new Date(expirationDateStr + "T23:59:59");
-      const today = new Date();
-      
-      // Se hoje passou do vencimento (D+1) ou tenant estiver inativo, bloqueia mudanças
-      if (today > expirationDate || !isActive) {
-        return res.status(403).json({
-          error: "Modo Restrito de Assinatura Ativo",
-          message: "Esta sandbox está em modo de leitura apenas por falta de pagamento ou vencimento da licença SaaS. Acesse Configurações do Salão para renovar.",
-          isRestrictedMode: true
-        });
-      }
-    }
-  } catch (err) {
-    console.error("Erro na validação do middleware de assinatura:", err);
-  }
-
-  next();
-};
-
-app.use(validateTenantSubscription);
+app.use(tenantAccessGuard);
 
 // API e Webhooks
 app.get("/api/health", (req, res) => {
@@ -777,6 +717,9 @@ app.post("/api/delete-tenant", express.json(), async (req, res) => {
       return res.status(500).json({ success: false, error: `Falha ao apagar salão: ${errTen.message}` });
     }
 
+    // Invalida cache do tenant removido
+    invalidateTenantCache(tenantId);
+
     return res.json({
       success: true,
       message: "Todos os dados da sandbox e do salão foram removidos permanentemente do Supabase com sucesso."
@@ -957,6 +900,9 @@ app.post("/api/verify-checkout-session", async (req, res) => {
         formattedExpDate = newExpirationDate.toISOString().substring(0, 10);
       }
 
+      // Invalida cache do tenantAccessGuard para refletir nova data
+      invalidateTenantCache(actualSalonId);
+
       return res.json({
         success: true,
         salonId: actualSalonId,
@@ -1086,6 +1032,9 @@ app.post("/api/webhook", express.raw({ type: "application/json" }), async (req, 
       } catch (dbErr) {
         console.error("Falha ao integrar com banco PostgreSQL Supabase:", dbErr);
       }
+
+      // Invalida cache do tenantAccessGuard após atualização via webhook
+      invalidateTenantCache(salonId);
     }
   }
 
