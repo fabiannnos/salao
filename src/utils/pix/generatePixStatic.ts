@@ -116,7 +116,8 @@ const TXID_ALLOWED_RE = /^[A-Za-z0-9]{1,25}$/;
 
 /**
  * Gera um TXID determinístico e compatível com a maioria dos bancos
- * brasileiros a partir do `comandaId`. O TXID é totalmente alfanumérico
+ * brasileiros a partir do número da comanda (`ticketNumber`) e do
+ * primeiro nome do cliente. O TXID é totalmente alfanumérico
  * (sem `_`, `.` ou `-`) e tem até 25 caracteres (limite do BR Code).
  *
  * **Por que não usar hash de timestamp?** O site
@@ -126,50 +127,82 @@ const TXID_ALLOWED_RE = /^[A-Za-z0-9]{1,25}$/;
  * especificação. Adotar o padrão alfanumérico curto maximiza a
  * compatibilidade.
  *
+ * **Por que incluir o nome do cliente?** Facilita a reconciliação
+ * bancária manual e a identificação visual no extrato do recebedor.
+ * Formato preferido: `CMD0006Alice` (número da comanda + primeiro
+ * nome). O caller pode passar `clientName` opcional — se omitido,
+ * o resultado é apenas `CMD0006`.
+ *
  * Estratégia:
- *  - Extrai parte alfanumérica do `comandaId`
- *  - Garante prefixo "CMD" (se ainda não tiver)
- *  - Mantém o resto alfanumérico em uppercase
+ *  - Extrai parte alfanumérica do `ticketNumber` (ex: "CMD-0006" → "CMD0006")
+ *  - Extrai primeiro nome do `clientName` (ex: "Alice Souza" → "ALICE")
+ *  - Concatena: `CMD0006` + `ALICE` = `CMD0006ALICE`
+ *  - Trunca para 25 chars se necessário
  *
- * Determinístico: mesmos inputs → mesmo output. Isso garante
- * idempotência: gerar o QR duas vezes para a mesma comanda produz
- * o mesmo BR Code, evitando divergências em sincronização.
+ * Determinístico: mesmos inputs → mesmo output. Idempotência total.
  *
- * @param comandaId   ID da comanda (ex: "CMD-0006", "cmd_a1b2c3d4e")
- * @param timestampMs (IGNORADO nesta versão — mantido para
- *                    compatibilidade de assinatura. O txid é 100%
- *                    determinístico a partir do comandaId.)
+ * @param ticketNumber Número da comanda exibido (ex: "CMD-0006")
+ * @param clientName   Nome do cliente (opcional). Só o primeiro nome
+ *                     é usado. Ex: "Alice Souza" → "ALICE"
+ * @param comandaId    (IGNORADO nesta versão — mantido para
+ *                     compatibilidade de assinatura. Use
+ *                     `ticketNumber` em vez disso.)
  *
  * @returns TXID alfanumérico (≤ 25 chars)
  *
  * @example
+ *   generatePixTxid('CMD-0006', 'Alice Souza')
+ *   // → "CMD0006ALICE" (13 chars)
+ *
  *   generatePixTxid('CMD-0006')
- *   // → "CMD0006" (7 chars)
+ *   // → "CMD0006" (7 chars — sem nome)
  *
- *   generatePixTxid('cmd_a1b2c3d4e')
- *   // → "CMDA1B2C3D4E" (12 chars)
+ *   generatePixTxid('cmd-00042', 'Maria de Lourdes Silva')
+ *   // → "CMD00042MARIA" (14 chars — só primeiro nome)
  *
- *   generatePixTxid('xyz123')
- *   // → "CMDXYZ123" (9 chars — prefixo CMD adicionado)
+ *   generatePixTxid('', 'João')
+ *   // → "JOAO" (4 chars — sem número, fallback só com nome)
  */
-export function generatePixTxid(comandaId: string, _timestampMs?: number): string {
-  // 1) Extrai só caracteres alfanuméricos e converte para uppercase
-  const cleaned = (comandaId || '')
+export function generatePixTxid(
+  ticketNumber?: string,
+  clientName?: string,
+  _comandaId?: string
+): string {
+  // 1) Extrai só caracteres alfanuméricos do número da comanda
+  const ticketPart = (ticketNumber || '')
     .replace(/[^A-Za-z0-9]/g, '')
     .toUpperCase();
 
-  // 2) Garante que começa com "CMD" (alguns bancos exigem esse prefixo
-  //    para reconciliação)
-  const withPrefix = cleaned.startsWith('CMD') ? cleaned : 'CMD' + cleaned;
+  // 2) Garante que começa com "CMD" se tiver conteúdo
+  const ticket = ticketPart
+    ? (ticketPart.startsWith('CMD') ? ticketPart : 'CMD' + ticketPart)
+    : '';
 
-  // 3) Trunca para 25 chars (limite BR Code) e valida charset
-  let txid = withPrefix.length > TXID_MAX_LENGTH
-    ? withPrefix.substring(0, TXID_MAX_LENGTH)
-    : withPrefix;
+  // 3) Extrai primeiro nome do cliente (apenas letras ASCII,
+  //    removendo acentos via NFD, sem espaços)
+  const firstName = (clientName || '')
+    .split(/\s+/)[0]                                       // primeiro token
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')      // remove acentos
+    .replace(/[^A-Za-z]/g, '')                             // só letras ASCII
+    .toUpperCase();
 
+  // 4) Concatena: número da comanda + primeiro nome
+  let txid = ticket + firstName;
+
+  // 5) Trunca para 25 chars (limite BR Code) e valida charset
+  if (txid.length > TXID_MAX_LENGTH) {
+    txid = txid.substring(0, TXID_MAX_LENGTH);
+  }
   if (!TXID_ALLOWED_RE.test(txid)) {
     // Fallback: limpa qualquer char fora do whitelist alfanumérico
     txid = txid.replace(/[^A-Za-z0-9]/g, '').substring(0, TXID_MAX_LENGTH);
+  }
+
+  // 6) Se ficou vazio (sem inputs), gera um placeholder baseado em
+  //    timestamp para garantir que o txid não fique vazio
+  if (!txid) {
+    const ts = Math.floor(Date.now() / 1000);
+    txid = 'CMD' + (ts % 1000000).toString(36).toUpperCase().padStart(4, '0');
   }
   return txid;
 }

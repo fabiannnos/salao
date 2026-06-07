@@ -170,10 +170,15 @@ export default function ComandasKanban({
     const amount = activeComandaForPix.totalValue;
 
     try {
-      // Gera txid determinístico a partir do ID da comanda + timestamp
-      // da geração. Determinístico: mesmas entradas → mesmo output.
-      // Isso permite idempotência e reconciliação bancária real.
-      const txid = generatePixTxid(activeComandaForPix.id, Date.now());
+      // Gera txid determinístico a partir do ticketNumber da comanda
+      // (ex: "CMD-0006") e do primeiro nome do cliente. Formato:
+      // `CMD0006ALICE` (≤ 25 chars, alfanumérico puro, compatível
+      // com apps bancários reais). Determinístico: mesmos inputs
+      // → mesmo txid → mesmo BR Code.
+      const txid = generatePixTxid(
+        activeComandaForPix.ticketNumber,
+        activeComandaForPix.clientName
+      );
 
       const { qrPayload } = generatePixStatic({
         pixKey: sanitizePixKey(cfg.pix_key, cfg.pix_key_type as any),
