@@ -1,4 +1,4 @@
-const CACHE = "helpit-v1.0.2";
+const CACHE = "helpit-v1.0.3";
 const ASSETS = [
   "/",
   "/manifest.webmanifest",

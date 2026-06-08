@@ -5,56 +5,58 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
-const STORAGE_KEY = "helpit_install_prompt_dismissed";
+const STORAGE_KEY = "helpit_pwa_dismissed";
 
 export default function PwaInstallBanner() {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [show, setShow] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
-  const [isMobileBrowser, setIsMobileBrowser] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(false);
-  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(STORAGE_KEY) === "true");
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
-    const match = window.matchMedia("(display-mode: standalone)").matches;
-    const iosStandalone = (window.navigator as any).standalone === true;
-    setIsStandalone(match || iosStandalone);
+    try {
+      const isStandalone =
+        window.matchMedia("(display-mode: standalone)").matches ||
+        !!(window.navigator as any).standalone;
+      if (isStandalone) return;
+
+      try {
+        if (sessionStorage.getItem(STORAGE_KEY) === "true") return;
+      } catch {}
+
+      const ua = navigator.userAgent;
+      const iOS =
+        /iPad|iPhone|iPod/.test(ua) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      const android = /Mobi|Android/.test(ua);
+      if (!iOS && !android) return;
+
+      setIsIOS(iOS);
+
+      const handler = (e: Event) => {
+        e.preventDefault();
+        setDeferredPrompt(e as BeforeInstallPromptEvent);
+      };
+      window.addEventListener("beforeinstallprompt", handler);
+
+      const timer = setTimeout(() => setShow(true), 1000);
+
+      return () => {
+        window.removeEventListener("beforeinstallprompt", handler);
+        clearTimeout(timer);
+      };
+    } catch (e) {
+      console.error("[PWA]", e);
+    }
   }, []);
-
-  useEffect(() => {
-    const ua = navigator.userAgent;
-    const iOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    const android = /Android/.test(ua);
-    setIsIOS(iOS);
-    setIsMobileBrowser(iOS || android);
-  }, []);
-
-  useEffect(() => {
-    if (isStandalone || dismissed || !isMobileBrowser) return;
-
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
-    };
-
-    window.addEventListener("beforeinstallprompt", handler);
-
-    const timer = setTimeout(() => setShow(true), 2000);
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handler);
-      clearTimeout(timer);
-    };
-  }, [isStandalone, dismissed, isMobileBrowser]);
 
   const handleInstall = async () => {
     if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === "accepted") {
-        setShow(false);
-      }
+      try {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === "accepted") setShow(false);
+      } catch {}
       setDeferredPrompt(null);
     } else {
       setShowGuide(true);
@@ -62,12 +64,13 @@ export default function PwaInstallBanner() {
   };
 
   const handleDismiss = () => {
-    sessionStorage.setItem(STORAGE_KEY, "true");
-    setDismissed(true);
+    try {
+      sessionStorage.setItem(STORAGE_KEY, "true");
+    } catch {}
     setShow(false);
   };
 
-  if (!show || isStandalone) return null;
+  if (!show) return null;
 
   return (
     <div className="fixed bottom-4 left-4 right-4 z-[200] max-w-md mx-auto animate-slide-up">
@@ -83,7 +86,8 @@ export default function PwaInstallBanner() {
                   Como instalar
                 </h4>
                 <p className="text-xs leading-relaxed text-stone-600 mt-1">
-                  Abra o menu do navegador <span className="font-bold">⋮</span> e selecione{" "}
+                  Abra o menu do navegador{" "}
+                  <span className="font-bold">⋮</span> e selecione{" "}
                   <strong>"Adicionar à tela inicial"</strong> ou{" "}
                   <strong>"Instalar aplicativo"</strong>.
                 </p>
