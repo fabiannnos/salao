@@ -34,7 +34,7 @@ async function registerSW() {
 }
 
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", registerSW);
+  registerSW();
 }
 
 createRoot(document.getElementById('root')!).render(

@@ -1,6 +1,6 @@
 {
-  "name": "Helpit Beauty Manager",
-  "short_name": "Helpit",
+  "name": "Gestão Modello",
+  "short_name": "Gestão Modello",
   "description": "Gestão inteligente para salões de beleza",
   "start_url": "/",
   "display": "standalone",

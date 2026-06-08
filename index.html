@@ -34,8 +34,8 @@
           var textSpan = document.createElement('span');
           textSpan.style.cssText = 'flex:1;min-width:0;line-height:1.4;';
           textSpan.textContent = isIOS
-            ? '📱 Instale o Gestão Modelo: toque em Compartilhar e depois em Adicionar à Tela de Início.'
-            : '📱 Instale o Gestão Modelo — acesse mais rápido como aplicativo.';
+            ? '📱 Instale o Gestão Modello: toque em Compartilhar e depois em Adicionar à Tela de Início.'
+            : '📱 Instale o Gestão Modello — acesse mais rápido como aplicativo.';
 
           var actionsDiv = document.createElement('div');
           actionsDiv.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0;';
@@ -55,7 +55,7 @@
               window.addEventListener('beforeinstallprompt', function(e) {
                 e.preventDefault();
                 deferredPrompt = e;
-              }, { once: true });
+              });
 
               var installBtn = document.createElement('button');
               installBtn.textContent = 'Instalar Agora';
@@ -68,9 +68,28 @@
                     deferredPrompt = null;
                   });
                 } else {
-                  textSpan.innerHTML = '📱 Abra o menu do navegador <b>⋮</b> e selecione <b>"Adicionar à tela inicial"</b> ou <b>"Instalar aplicativo"</b>.';
-                  installBtn.style.display = 'none';
-                  dismissBtn.textContent = 'Entendi';
+                  installBtn.textContent = 'Aguarde...';
+                  installBtn.disabled = true;
+                  installBtn.style.opacity = '0.6';
+                  var waitTimer = setTimeout(function() {
+                    installBtn.style.display = 'none';
+                    dismissBtn.textContent = 'Entendi';
+                    textSpan.innerHTML = '📱 Abra o menu do navegador <b>⋮</b> e selecione <b>"Adicionar à tela inicial"</b> ou <b>"Instalar aplicativo"</b>.';
+                  }, 5000);
+                  var checkInterval = setInterval(function() {
+                    if (deferredPrompt) {
+                      clearTimeout(waitTimer);
+                      clearInterval(checkInterval);
+                      installBtn.textContent = 'Instalar Agora';
+                      installBtn.disabled = false;
+                      installBtn.style.opacity = '1';
+                      deferredPrompt.prompt();
+                      deferredPrompt.userChoice.then(function(result) {
+                        if (result.outcome === 'accepted') banner.style.display = 'none';
+                        deferredPrompt = null;
+                      });
+                    }
+                  }, 200);
                 }
               };
               actionsDiv.appendChild(installBtn);
