@@ -130,6 +130,10 @@ export default function App() {
   // Subscription, local warnings, and billing simulator states
   const [dismissedWarning, setDismissedWarning] = useState<boolean>(false);
   const [showStripeSuccessModal, setShowStripeSuccessModal] = useState<boolean>(false);
+  const [showPixModal, setShowPixModal] = useState<boolean>(false);
+  const [pixData, setPixData] = useState<{ encodedImage: string; payload: string; paymentId: string } | null>(null);
+  const [pixStatus, setPixStatus] = useState<'waiting' | 'confirmed' | 'failed'>('waiting');
+  const pixIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [alertState, setAlertState] = useState<{message: string; variant?: 'info' | 'success' | 'error'} | null>(null);
   const [restrictedActionName, setRestrictedActionName] = useState<string | null>(null);
 
@@ -344,6 +348,60 @@ export default function App() {
     }
   }, [currentSalon, userRole]);
 
+  // Polling de status do PIX Asaas
+  useEffect(() => {
+    if (!showPixModal || !pixData || pixStatus !== 'waiting') {
+      if (pixIntervalRef.current) {
+        clearInterval(pixIntervalRef.current);
+        pixIntervalRef.current = null;
+      }
+      return;
+    }
+
+    pixIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/asaas/payment-status/${pixData.paymentId}`);
+        const data = await res.json();
+        if (data.success && (data.status === "CONFIRMED" || data.status === "RECEIVED")) {
+          setPixStatus('confirmed');
+          if (pixIntervalRef.current) {
+            clearInterval(pixIntervalRef.current);
+            pixIntervalRef.current = null;
+          }
+          const list = loadSalons();
+          const updated = list.map((s) => {
+            if (s.id === currentSalon?.id) {
+              const base = new Date();
+              base.setDate(base.getDate() + 30);
+              const yyyy = base.getFullYear();
+              const mm = String(base.getMonth() + 1).padStart(2, '0');
+              const dd = String(base.getDate()).padStart(2, '0');
+              return { ...s, expirationDate: `${yyyy}-${mm}-${dd}`, isActive: true };
+            }
+            return s;
+          });
+          triggerUpdateSalons(updated);
+          const updatedSalon = updated.find((s) => s.id === currentSalon?.id);
+          if (updatedSalon) setCurrentSalon(updatedSalon);
+          setTimeout(() => {
+            setShowPixModal(false);
+            setPixData(null);
+            setShowStripeSuccessModal(true);
+          }, 1500);
+        }
+      } catch (_) {
+        // keep polling
+      }
+    }, 5000);
+
+    return () => {
+      if (pixIntervalRef.current) {
+        clearInterval(pixIntervalRef.current);
+        pixIntervalRef.current = null;
+      }
+    };
+  }, [showPixModal, pixData, pixStatus, currentSalon]);
+
   // Status de assinatura calculado reativamente
   const tenantStatus = useMemo<TenantStatus>(() => {
     if (userRole === "SAAS_ADMIN") return "ACTIVE";
@@ -379,89 +437,87 @@ export default function App() {
 
   const isReadOnly = userRole !== "SAAS_ADMIN" && tenantStatus === "EXPIRED";
 
-  // Inicia checkout real/simulado no Stripe através do backend fullstack
   const handleLaunchStripeCheckout = async () => {
     if (!currentSalon) return;
-    try {
-      const cleanDomain = currentSalon.name
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "") // remove acentuação
-        .replace(/[^a-z0-9]/g, ""); // remove caracteres especiais
+    const cleanDomain = currentSalon.name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, "");
 
+    try {
+      const pixRes = await fetch("/api/asaas/create-pix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          salonId: currentSalon.id,
+          customerEmail: "financeiro@" + (cleanDomain || "salao") + ".com.br",
+          description: "Assinatura Gestão Modello - 30 dias",
+        }),
+      });
+      const pixDataRaw = await pixRes.json();
+
+      if (pixRes.ok && pixDataRaw.success && pixDataRaw.encodedImage) {
+        setPixData({
+          encodedImage: pixDataRaw.encodedImage,
+          payload: pixDataRaw.payload,
+          paymentId: pixDataRaw.paymentId,
+        });
+        setPixStatus('waiting');
+        setShowPixModal(true);
+        return;
+      }
+    } catch (_) {
+      // Asaas not available, fall through to mock/Stripe
+    }
+
+    try {
       const response = await fetch("/api/checkout", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           salonId: currentSalon.id,
           customerEmail: "financeiro@" + (cleanDomain || "salao") + ".com.br",
           successUrl: window.location.origin + "/?stripe_session_id={CHECKOUT_SESSION_ID}&salon_id=" + currentSalon.id,
-          cancelUrl: window.location.origin + "/"
-        })
+          cancelUrl: window.location.origin + "/",
+        }),
       });
       const data = await response.json();
-      
+
       if (data.isMock) {
-        // PERFEITO! Se for Mock/Simulação (sem chave Stripe real), renova imediatamente
-        // no próprio estado React/localstorage, evitando bugs de redirecionamentos de iframe no sandbox!
         const list = loadSalons();
-        const updated = list.map(s => {
+        const updated = list.map((s) => {
           if (s.id === currentSalon.id) {
             const currentExp = s.expirationDate ? new Date(s.expirationDate) : new Date();
             const baseDate = currentExp.getTime() < Date.now() ? new Date() : currentExp;
             baseDate.setDate(baseDate.getDate() + 30);
-            
             const yyyy = baseDate.getFullYear();
-            const mm = String(baseDate.getMonth() + 1).padStart(2, '0');
-            const dd = String(baseDate.getDate()).padStart(2, '0');
-            
-            return {
-              ...s,
-              expirationDate: `${yyyy}-${mm}-${dd}`,
-              isActive: true
-            };
+            const mm = String(baseDate.getMonth() + 1).padStart(2, "0");
+            const dd = String(baseDate.getDate()).padStart(2, "0");
+            return { ...s, expirationDate: `${yyyy}-${mm}-${dd}`, isActive: true };
           }
           return s;
         });
-        
         triggerUpdateSalons(updated);
-        // Atualiza também o salão atual para refletir na interface na hora
-        const updatedSalon = updated.find(s => s.id === currentSalon.id);
-        if (updatedSalon) {
-          setCurrentSalon(updatedSalon);
-        }
+        const updatedSalon = updated.find((s) => s.id === currentSalon.id);
+        if (updatedSalon) setCurrentSalon(updatedSalon);
         setShowStripeSuccessModal(true);
-        console.log("[Simulation] Renovação de assinatura realizada com êxito diretamente no navegador (desvio de bloqueio de iframe do sandbox).");
       } else if (data.url) {
-        // Se temos uma URL de pagamento real, tentamos abrir em uma nova aba primeiro (para evitar que seja bloqueado pelo X-Frame-Options do Stripe que impede renderizar dentro de um iframe).
-        // Se abrir uma nova janela/aba falhar (ex: bloqueador de popups), realizamos redirecionamento do frame principal (window.top) ou diretamente no frame atual como redundância extrema.
         try {
-          const win = window.open(data.url, '_blank');
-          if (!win || win.closed || typeof win.closed === 'undefined') {
-            if (window.top) {
-              window.top.location.href = data.url;
-            } else {
-              window.location.href = data.url;
-            }
+          const win = window.open(data.url, "_blank");
+          if (!win || win.closed || typeof win.closed === "undefined") {
+            if (window.top) window.top.location.href = data.url;
+            else window.location.href = data.url;
           }
-        } catch (popupErr) {
-          try {
-            if (window.top) {
-              window.top.location.href = data.url;
-            } else {
-              window.location.href = data.url;
-            }
-          } catch (innerErr) {
-            window.location.href = data.url;
-          }
+        } catch {
+          if (window.top) window.top.location.href = data.url;
+          else window.location.href = data.url;
         }
       } else {
-        setAlertState({message: "Erro ao gerar sessão de faturamento: " + data.error, variant: 'error'});
+        setAlertState({ message: "Erro ao gerar sessão de faturamento: " + data.error, variant: "error" });
       }
     } catch (err: any) {
-      setAlertState({message: "Falha ao comunicar com o servidor de faturamento: " + err.message, variant: 'error'});
+      setAlertState({ message: "Falha ao comunicar com o servidor de faturamento: " + err.message, variant: "error" });
     }
   };
   
@@ -1814,6 +1870,78 @@ export default function App() {
                   })()}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* PIX QR Code Modal */}
+        {showPixModal && pixData && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
+            <div className="bg-white rounded-2xl w-full max-w-sm p-6 border-2 border-emerald-500 shadow-2xl text-center space-y-4 font-sans animate-scale-in">
+              <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mx-auto border-2 border-emerald-200 shadow-2xs">
+                {pixStatus === 'waiting' ? (
+                  <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                ) : pixStatus === 'confirmed' ? (
+                  <ShieldCheck className="w-8 h-8 text-emerald-600" />
+                ) : (
+                  <ShieldAlert className="w-8 h-8 text-rose-600" />
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-lg font-black text-emerald-950 leading-none">
+                  {pixStatus === 'waiting' ? 'Pagamento via PIX' : pixStatus === 'confirmed' ? 'Pagamento Confirmado!' : 'Falha no Pagamento'}
+                </h3>
+                <p className="text-xs text-stone-500 leading-relaxed px-2 mt-2">
+                  {pixStatus === 'waiting'
+                    ? 'Escaneie o QR Code abaixo com seu aplicativo bancário para pagar.'
+                    : pixStatus === 'confirmed'
+                    ? 'Seu pagamento foi confirmado. Sua assinatura será renovada automaticamente.'
+                    : 'Houve um problema com o pagamento. Tente novamente.'}
+                </p>
+              </div>
+              {pixStatus === 'waiting' && (
+                <>
+                  <div className="bg-white rounded-xl p-2 border border-stone-200 mx-auto w-56 h-56 flex items-center justify-center">
+                    <img
+                      src={`data:image/png;base64,${pixData.encodedImage}`}
+                      alt="QR Code PIX"
+                      className="w-52 h-52"
+                    />
+                  </div>
+                  <div className="bg-stone-50 rounded-lg p-3 border border-stone-200">
+                    <p className="text-[9px] text-stone-400 uppercase font-bold tracking-wider mb-1">Código Copia e Cola</p>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(pixData.payload);
+                        setAlertState({ message: "Código PIX copiado!", variant: 'success' });
+                      }}
+                      className="w-full text-left text-[10px] font-mono text-stone-800 bg-white border border-stone-200 rounded-md p-2 break-all hover:border-emerald-300 transition cursor-pointer"
+                    >
+                      {pixData.payload}
+                    </button>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[10px] text-amber-800 leading-relaxed">
+                    ⏱ O QR Code expira em até 24h. Após o pagamento, a confirmação pode levar alguns segundos.
+                  </div>
+                </>
+              )}
+              <button
+                onClick={() => {
+                  setShowPixModal(false);
+                  setPixData(null);
+                  setPixStatus('waiting');
+                  if (pixIntervalRef.current) {
+                    clearInterval(pixIntervalRef.current);
+                    pixIntervalRef.current = null;
+                  }
+                  if (pixStatus === 'confirmed') {
+                    setShowStripeSuccessModal(true);
+                  }
+                }}
+                className="w-full bg-zinc-950 hover:bg-black text-white font-bold text-xs py-2.5 rounded-lg shadow-sm transition cursor-pointer"
+              >
+                {pixStatus === 'confirmed' ? 'Ver Painel' : 'Fechar'}
+              </button>
             </div>
           </div>
         )}

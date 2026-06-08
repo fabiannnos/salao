@@ -57,6 +57,7 @@ app.get("/api/health", (req, res) => {
     status: "ok",
     environment: process.env.NODE_ENV || "development",
     hasStripeKey: !!process.env.STRIPE_SECRET_KEY,
+    hasAsaasKey: !!process.env.ASAAS_API_KEY,
     hasSupabaseKey: !!process.env.SUPABASE_URL,
     stripeProductId: process.env.STRIPE_PRODUCT_ID || "prod_gestao_modello_mensal"
   });
@@ -145,6 +146,189 @@ app.post("/api/tenant-pix-config", express.json(), async (req, res) => {
     return res.json({ success: true, config: data });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+// =========================================================================
+// Asaas — PIX QR Code para renovação de assinatura
+// =========================================================================
+
+function getAsaasHeaders() {
+  const key = process.env.ASAAS_API_KEY;
+  if (!key) return null;
+  return {
+    "access_token": key,
+    "Content-Type": "application/json",
+  };
+}
+
+function getAsaasApiUrl() {
+  return process.env.ASAAS_SANDBOX === "true"
+    ? "https://api-sandbox.asaas.com/v3"
+    : "https://api.asaas.com/v3";
+}
+
+function calculateNewExpiration(expirationDate: string | null): string {
+  const newExp = new Date();
+  if (expirationDate) {
+    const currentExp = new Date(expirationDate.substring(0, 10) + "T20:00:00");
+    const today = new Date();
+    if (!isNaN(currentExp.getTime()) && currentExp > today) {
+      newExp.setTime(currentExp.getTime());
+    }
+  }
+  newExp.setDate(newExp.getDate() + 30);
+  return newExp.toISOString().substring(0, 10);
+}
+
+async function updateTenantExpiration(salonId: string): Promise<string | null> {
+  const hasSupabase = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!hasSupabase) return null;
+
+  const supabase = getSupabase();
+  const { data: tenant } = await supabase
+    .from("tenants")
+    .select("expiration_date")
+    .eq("id", salonId)
+    .single();
+
+  const formattedExpDate = calculateNewExpiration(tenant?.expiration_date || null);
+
+  const { error } = await supabase
+    .from("tenants")
+    .update({ expiration_date: formattedExpDate, is_active: true })
+    .eq("id", salonId);
+
+  if (error) {
+    console.error("[Asaas] Erro ao atualizar expiração:", error);
+    return null;
+  }
+
+  invalidateTenantCache(salonId);
+  return formattedExpDate;
+}
+
+app.post("/api/asaas/create-pix", express.json(), async (req, res) => {
+  const { salonId, customerEmail, description } = req.body || {};
+  if (!salonId) {
+    return res.status(400).json({ success: false, error: "salonId é obrigatório" });
+  }
+
+  const headers = getAsaasHeaders();
+  if (!headers) {
+    return res.status(400).json({ success: false, isMock: true, error: "Asaas não configurado. Use o modo simulação." });
+  }
+
+  const apiUrl = getAsaasApiUrl();
+
+  try {
+    // 1. Create customer in Asaas (or find existing)
+    const customerRes = await fetch(`${apiUrl}/customers`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "Cliente Gestão Modello",
+        email: customerEmail || "cliente@modello.com.br",
+        externalReference: salonId,
+      }),
+    });
+    const customer = await customerRes.json();
+    if (!customer.id) {
+      throw new Error(customer.errors?.[0]?.description || "Falha ao criar cliente no Asaas");
+    }
+
+    // 2. Create PIX payment
+    const today = new Date().toISOString().substring(0, 10);
+    const paymentRes = await fetch(`${apiUrl}/payments`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        customer: customer.id,
+        billingType: "PIX",
+        value: 120.00,
+        dueDate: today,
+        description: description || "Assinatura Gestão Modello - 30 dias",
+        externalReference: salonId,
+      }),
+    });
+    const payment = await paymentRes.json();
+    if (!payment.id) {
+      throw new Error(payment.errors?.[0]?.description || "Falha ao criar cobrança no Asaas");
+    }
+
+    // 3. Get PIX QR Code
+    const qrRes = await fetch(`${apiUrl}/payments/${payment.id}/pixQrCode`, {
+      method: "GET",
+      headers: { "access_token": process.env.ASAAS_API_KEY! },
+    });
+    const qrCode = await qrRes.json();
+    if (!qrCode.encodedImage) {
+      throw new Error(qrCode.errors?.[0]?.description || "Falha ao obter QR Code PIX");
+    }
+
+    return res.json({
+      success: true,
+      paymentId: payment.id,
+      encodedImage: qrCode.encodedImage,
+      payload: qrCode.payload,
+      expirationDate: qrCode.expirationDate,
+      value: 120.00,
+    });
+  } catch (err: any) {
+    console.error("[Asaas] Erro ao criar PIX:", err);
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+app.get("/api/asaas/payment-status/:paymentId", async (req, res) => {
+  const { paymentId } = req.params;
+  const headers = getAsaasHeaders();
+  if (!headers) {
+    return res.status(400).json({ success: false, error: "Asaas não configurado" });
+  }
+
+  try {
+    const apiUrl = getAsaasApiUrl();
+    const payRes = await fetch(`${apiUrl}/payments/${paymentId}`, {
+      method: "GET",
+      headers: { "access_token": process.env.ASAAS_API_KEY! },
+    });
+    const payment = await payRes.json();
+
+    return res.json({
+      success: true,
+      status: payment.status,
+      confirmedDate: payment.confirmedDate || null,
+      paymentDate: payment.paymentDate || null,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+app.post("/api/asaas/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  const webhookToken = process.env.ASAAS_WEBHOOK_TOKEN;
+  if (webhookToken) {
+    const token = req.headers["asaas-webhook-token"] || req.headers["x-webhook-token"];
+    if (token !== webhookToken) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+  }
+
+  try {
+    const body = JSON.parse(req.body.toString());
+    const { event, payment } = body;
+
+    if ((event === "PAYMENT_CONFIRMED" || event === "PAYMENT_RECEIVED") && payment?.externalReference) {
+      const salonId = payment.externalReference;
+      const newExpDate = await updateTenantExpiration(salonId);
+      console.log(`[Asaas Webhook] Pagamento confirmado para salão ${salonId}. Nova expiração: ${newExpDate}`);
+    }
+
+    return res.json({ received: true });
+  } catch (err: any) {
+    console.error("[Asaas Webhook] Erro:", err);
+    return res.status(200).json({ received: true });
   }
 });
 

@@ -29,6 +29,7 @@ const ALLOWED_PREFIXES = [
   "/api/supa-pull",
   "/api/supa-sync",
   "/api/admin",
+  "/api/asaas",
 ];
 
 function isAllowedPath(path: string): boolean {
