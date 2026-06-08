@@ -21,7 +21,7 @@ import {
 } from './dataStore';
 
 import { formatPhone, formatCNPJ } from './utils';
-import { getTenantStatus, getDaysRemaining, type TenantStatus } from './utils/billing/getTenantStatus';
+import { getTenantStatus, getDaysRemaining, GRACE_PERIOD_DAYS, type TenantStatus } from './utils/billing/getTenantStatus';
 
 // Icons
 import { 
@@ -1702,20 +1702,43 @@ export default function App() {
           const { status, daysRemaining } = getTenantStatus(currentSalon.expirationDate);
 
           if (status === "EXPIRED") {
+            const { isGracePeriod, daysOverdue } = getTenantStatus(currentSalon.expirationDate);
+            if (isGracePeriod) {
+              return (
+                <div className="mb-6 bg-rose-50 border-2 border-rose-600 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-rose-900 leading-normal animate-fade-in shadow-sm font-sans">
+                  <div className="flex gap-3">
+                    <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="block text-rose-950 font-extrabold text-sm">Período de carência — sistema em modo somente leitura.</strong>
+                      <p className="text-xs text-rose-800 leading-relaxed max-w-2xl mt-0.5">
+                        Sua assinatura venceu em <strong>{currentSalon.expirationDate}</strong> ({daysOverdue} {daysOverdue === 1 ? 'dia' : 'dias'} atrás). Você tem <strong>{GRACE_PERIOD_DAYS - daysOverdue}</strong> {GRACE_PERIOD_DAYS - daysOverdue === 1 ? 'dia' : 'dias'} restantes de carência para renovar. Durante este período, você pode visualizar relatórios e imprimir, mas não pode cadastrar, editar ou excluir informações.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleLaunchStripeCheckout}
+                    className="w-full md:w-auto shrink-0 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                  >
+                    <CreditCard className="w-4 h-4 text-stone-100" />
+                    <span>Renovar Assinatura</span>
+                  </button>
+                </div>
+              );
+            }
             return (
-              <div className="mb-6 bg-rose-50 border-2 border-rose-600 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-rose-900 leading-normal animate-fade-in shadow-sm font-sans">
+              <div className="mb-6 bg-red-50 border-2 border-red-700 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-red-900 leading-normal animate-fade-in shadow-sm font-sans">
                 <div className="flex gap-3">
-                  <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <ShieldAlert className="w-5 h-5 text-red-700 shrink-0 mt-0.5" />
                   <div>
-                    <strong className="block text-rose-950 font-extrabold text-sm">Sua assinatura expirou. O sistema está operando em modo somente leitura.</strong>
-                    <p className="text-xs text-rose-800 leading-relaxed max-w-2xl mt-0.5">
-                      Expirou em {currentSalon.expirationDate} ({Math.abs(daysRemaining)} {Math.abs(daysRemaining) === 1 ? 'dia' : 'dias'} atrás). Renove para voltar a realizar alterações.
+                    <strong className="block text-red-950 font-extrabold text-sm">Assinatura bloqueada — período de carência expirado.</strong>
+                    <p className="text-xs text-red-800 leading-relaxed max-w-2xl mt-0.5">
+                      Sua assinatura expirou em <strong>{currentSalon.expirationDate}</strong> ({daysOverdue} {daysOverdue === 1 ? 'dia' : 'dias'} atrás) e o período de carência de {GRACE_PERIOD_DAYS} dias já se encerrou. Renove agora para voltar a utilizar o sistema.
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={handleLaunchStripeCheckout}
-                  className="w-full md:w-auto shrink-0 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                  className="w-full md:w-auto shrink-0 bg-red-700 hover:bg-red-800 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
                 >
                   <CreditCard className="w-4 h-4 text-stone-100" />
                   <span>Renovar Assinatura</span>
@@ -1764,7 +1787,13 @@ export default function App() {
                 </p>
               </div>
               <div className="bg-rose-50/50 rounded-xl p-3 border border-rose-100/75 text-left text-[10.5px] leading-relaxed text-rose-900">
-                Para voltar a lançar comandas, cadastrar atendimentos, computar comissões e realizar baixas financeiras normais, faça a renovação da sua assinatura mensal de R$ 120,00.
+                {currentSalon && (() => {
+                  const { isGracePeriod, daysOverdue } = getTenantStatus(currentSalon.expirationDate);
+                  if (isGracePeriod) {
+                    return `Sua assinatura venceu há ${daysOverdue} ${daysOverdue === 1 ? 'dia' : 'dias'}. O sistema está em carência de ${GRACE_PERIOD_DAYS} dias em modo somente leitura. Para voltar a lançar comandas, cadastrar atendimentos, computar comissões e realizar baixas financeiras normais, faça a renovação da sua assinatura mensal de R$ 120,00.`;
+                  }
+                  return `Sua assinatura expirou há ${daysOverdue} ${daysOverdue === 1 ? 'dia' : 'dias'} e o período de carência já se encerrou. Renove agora para voltar a utilizar o sistema.`;
+                })()}
               </div>
               <div className="flex flex-col gap-2 pt-1.5">
                 <button
@@ -1781,7 +1810,10 @@ export default function App() {
                   onClick={() => setRestrictedActionName(null)}
                   className="w-full bg-stone-100 hover:bg-stone-200 text-stone-850 font-bold text-xs py-2.5 rounded-lg transition cursor-pointer"
                 >
-                  Continuar Apenas Visualizando Relatórios
+                  {currentSalon && (() => {
+                    const { isGracePeriod } = getTenantStatus(currentSalon.expirationDate);
+                    return isGracePeriod ? "Continuar Apenas Visualizando Relatórios" : "Sair";
+                  })()}
                 </button>
               </div>
             </div>
