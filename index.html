@@ -19,10 +19,6 @@
         /* Regra A: já instalado como PWA? → nunca mostrar */
         if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) return;
 
-        /* Apenas mobile */
-        var ua = navigator.userAgent;
-        if (!/Mobi|Android|iPhone|iPad|iPod/i.test(ua) && !(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return;
-
         var banner = null;
         var deferredPrompt = null;
 
