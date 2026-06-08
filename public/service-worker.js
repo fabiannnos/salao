@@ -1,4 +1,4 @@
-const CACHE = "gestao-modello-v1.0.2";
+const CACHE = "gestao-modello-v1.0.3";
 const ASSETS = [
   "/",
   "/manifest.webmanifest",
