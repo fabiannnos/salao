@@ -1579,7 +1579,9 @@ export default function App() {
   // ADMINISTRATIVE CONSOLE WORKSPACE FOR SALON OWNER
   return (
     <div className="min-h-screen md:h-screen overflow-x-hidden md:overflow-hidden bg-[#FCF9F2] flex flex-col md:flex-row font-sans relative">
-      
+
+      <PwaInstallBanner />
+
       {/* MOBILE STICKY HEADER TO AVOID EMPATHETIC CLUTTER AND SCROLL NOISE */}
       <header className="sticky top-0 left-0 right-0 h-16 bg-black text-white flex items-center justify-between px-5 z-40 md:hidden border-b border-zinc-800 shrink-0 print:hidden">
         <div className="flex items-center gap-2">
@@ -1952,8 +1954,6 @@ export default function App() {
         )}
 
       </main>
-
-      <PwaInstallBanner />
 
       <AlertModal
         open={!!alertState}

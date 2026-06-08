@@ -39,7 +39,7 @@ export default function PwaInstallBanner() {
       };
       window.addEventListener("beforeinstallprompt", handler);
 
-      const timer = setTimeout(() => setShow(true), 1000);
+      const timer = setTimeout(() => setShow(true), 500);
 
       return () => {
         window.removeEventListener("beforeinstallprompt", handler);
@@ -72,72 +72,60 @@ export default function PwaInstallBanner() {
 
   if (!show) return null;
 
+  if (showGuide && !isIOS && !deferredPrompt) {
+    return (
+      <div className="sticky top-0 left-0 right-0 z-[200] bg-amber-50 border-b-2 border-amber-200 px-4 py-3">
+        <div className="max-w-[1200px] mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-lg shrink-0">📱</span>
+            <p className="text-xs leading-relaxed text-amber-900">
+              Abra o menu do navegador{" "}
+              <span className="font-bold">⋮</span> e selecione{" "}
+              <strong>"Adicionar à tela inicial"</strong> ou{" "}
+              <strong>"Instalar aplicativo"</strong>.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="shrink-0 bg-amber-200 hover:bg-amber-300 text-amber-900 py-1.5 px-3 rounded-lg text-xs font-bold cursor-pointer transition whitespace-nowrap"
+          >
+            Entendi
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-[200] max-w-md mx-auto animate-slide-up">
-      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 p-5 space-y-4">
-        {showGuide && !isIOS && !deferredPrompt ? (
-          <>
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-stone-900 flex items-center justify-center shrink-0">
-                <span className="text-lg">📱</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-serif font-black text-xs uppercase tracking-wider text-stone-900">
-                  Como instalar
-                </h4>
-                <p className="text-xs leading-relaxed text-stone-600 mt-1">
-                  Abra o menu do navegador{" "}
-                  <span className="font-bold">⋮</span> e selecione{" "}
-                  <strong>"Adicionar à tela inicial"</strong> ou{" "}
-                  <strong>"Instalar aplicativo"</strong>.
-                </p>
-              </div>
-            </div>
+    <div className="sticky top-0 left-0 right-0 z-[200] bg-black text-white px-4 py-3">
+      <div className="max-w-[1200px] mx-auto flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-lg shrink-0">📱</span>
+          <p className="text-xs leading-relaxed text-stone-300">
+            {isIOS
+              ? "Instale o Gestão Modello: toque em Compartilhar e depois em Adicionar à Tela de Início."
+              : "Instale o Gestão Modello — acesse mais rápido como aplicativo."}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white py-1.5 px-3 rounded-lg text-xs font-bold cursor-pointer transition"
+          >
+            {isIOS ? "Entendi" : "Depois"}
+          </button>
+          {!isIOS && (
             <button
               type="button"
-              onClick={handleDismiss}
-              className="w-full bg-stone-100 hover:bg-stone-200 text-stone-700 py-2.5 px-4 rounded-lg text-xs font-bold cursor-pointer transition"
+              onClick={handleInstall}
+              className="bg-amber-500 hover:bg-amber-400 text-black py-1.5 px-3 rounded-lg text-xs font-bold cursor-pointer transition"
             >
-              Entendi
+              Instalar Agora
             </button>
-          </>
-        ) : (
-          <>
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-stone-900 flex items-center justify-center shrink-0">
-                <span className="text-lg">📱</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-serif font-black text-xs uppercase tracking-wider text-stone-900">
-                  Instale o Gestão Modello
-                </h4>
-                <p className="text-xs leading-relaxed text-stone-600 mt-1">
-                  {isIOS
-                    ? "Toque em Compartilhar e depois em Adicionar à Tela de Início."
-                    : "Acesse mais rápido, receba uma experiência semelhante a aplicativo e evite precisar digitar o endereço novamente."}
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleDismiss}
-                className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 py-2.5 px-4 rounded-lg text-xs font-bold cursor-pointer transition"
-              >
-                {isIOS ? "Entendi" : "Depois"}
-              </button>
-              {!isIOS && (
-                <button
-                  type="button"
-                  onClick={handleInstall}
-                  className="flex-1 bg-stone-900 hover:bg-stone-800 text-white py-2.5 px-4 rounded-lg text-xs font-bold cursor-pointer transition"
-                >
-                  Instalar Agora
-                </button>
-              )}
-            </div>
-          </>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
