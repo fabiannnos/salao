@@ -14,6 +14,77 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   </head>
   <body>
+    <script>
+      (function() {
+        try {
+          if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) return;
+
+          var ua = navigator.userAgent;
+          var isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+          if (!isMobile) return;
+
+          try { if (sessionStorage.getItem('helpit_pwa_banner_hidden') === '1') return; } catch(e) {}
+
+          var isIOS = /iPad|iPhone|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+          var banner = document.createElement('div');
+          banner.id = 'pwa-top-banner';
+          banner.style.cssText = 'position:sticky;top:0;left:0;right:0;z-index:2147483647;background:#000;color:#fff;padding:10px 16px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:12px;';
+
+          var textSpan = document.createElement('span');
+          textSpan.style.cssText = 'flex:1;min-width:0;line-height:1.4;';
+          textSpan.textContent = isIOS
+            ? '📱 Instale o Gestão Modelo: toque em Compartilhar e depois em Adicionar à Tela de Início.'
+            : '📱 Instale o Gestão Modelo — acesse mais rápido como aplicativo.';
+
+          var actionsDiv = document.createElement('div');
+          actionsDiv.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0;';
+
+          var dismissBtn = document.createElement('button');
+          dismissBtn.textContent = isIOS ? 'Entendi' : 'Depois';
+          dismissBtn.style.cssText = 'background:#1f2937;color:#d1d5db;border:none;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;';
+          dismissBtn.onclick = function() {
+            try { sessionStorage.setItem('helpit_pwa_banner_hidden', '1'); } catch(e) {}
+            banner.style.display = 'none';
+          };
+          actionsDiv.appendChild(dismissBtn);
+
+          if (!isIOS) {
+            (function() {
+              var deferredPrompt = null;
+              window.addEventListener('beforeinstallprompt', function(e) {
+                e.preventDefault();
+                deferredPrompt = e;
+              }, { once: true });
+
+              var installBtn = document.createElement('button');
+              installBtn.textContent = 'Instalar Agora';
+              installBtn.style.cssText = 'background:#f59e0b;color:#000;border:none;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;';
+              installBtn.onclick = function() {
+                if (deferredPrompt) {
+                  deferredPrompt.prompt();
+                  deferredPrompt.userChoice.then(function(result) {
+                    if (result.outcome === 'accepted') banner.style.display = 'none';
+                    deferredPrompt = null;
+                  });
+                } else {
+                  textSpan.innerHTML = '📱 Abra o menu do navegador <b>⋮</b> e selecione <b>"Adicionar à tela inicial"</b> ou <b>"Instalar aplicativo"</b>.';
+                  installBtn.style.display = 'none';
+                  dismissBtn.textContent = 'Entendi';
+                }
+              };
+              actionsDiv.appendChild(installBtn);
+            })();
+          }
+
+          banner.appendChild(textSpan);
+          banner.appendChild(actionsDiv);
+          document.body.insertBefore(banner, document.body.firstChild);
+        } catch(e) {
+          console.error('[PWA]', e);
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
