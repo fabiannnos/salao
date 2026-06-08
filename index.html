@@ -72,14 +72,21 @@
 
         /* Regra B: beforeinstallprompt → exibir banner */
         window.addEventListener('beforeinstallprompt', function(e) {
+          console.log('[PWA] beforeinstallprompt DISPARADO!');
           e.preventDefault();
           deferredPrompt = e;
 
-          try { if (sessionStorage.getItem('pwa_dismissed') === '1') return; } catch(e) {}
+          try { if (sessionStorage.getItem('pwa_dismissed') === '1') {
+            console.log('[PWA] Banner dispensado nesta sessão');
+            return;
+          } } catch(e) {}
 
           criarBanner();
           banner.style.display = 'flex';
+          console.log('[PWA] Banner exibido');
         });
+
+        console.log('[PWA] Listener beforeinstallprompt registrado');
       })();
     </script>
   </head>
