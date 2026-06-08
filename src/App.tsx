@@ -301,15 +301,11 @@ export default function App() {
           if (salonItem.expirationDate) {
             const currentExp = new Date(salonItem.expirationDate + "T23:59:59");
             const today = new Date();
-            if (currentExp > today) {
-              newDate = new Date(currentExp);
-              newDate.setMonth(newDate.getMonth() + 1);
-            } else {
-              newDate.setMonth(newDate.getMonth() + 1);
+            if (!isNaN(currentExp.getTime()) && currentExp > today) {
+              newDate = currentExp;
             }
-          } else {
-            newDate.setMonth(newDate.getMonth() + 1);
           }
+          newDate.setDate(newDate.getDate() + 30);
  
           const formattedExp = newDate.toISOString().substring(0, 10);
           const updatedSalonItem = {

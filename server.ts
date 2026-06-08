@@ -812,20 +812,14 @@ app.post("/api/verify-checkout-session", async (req, res) => {
         let newExpirationDate = new Date();
 
         if (!getError && currentSalon && currentSalon.expiration_date) {
-          // Extrai apenas os primeiros 10 caracteres (YYYY-MM-DD) para parsing ultra seguro
           const dateOnlyStr = String(currentSalon.expiration_date).substring(0, 10);
           const currentExp = new Date(dateOnlyStr + "T20:00:00");
           const today = new Date();
-
           if (!isNaN(currentExp.getTime()) && currentExp > today) {
-            newExpirationDate = new Date(currentExp);
-            newExpirationDate.setMonth(newExpirationDate.getMonth() + 1);
-          } else {
-            newExpirationDate.setMonth(newExpirationDate.getMonth() + 1);
+            newExpirationDate = currentExp;
           }
-        } else {
-          newExpirationDate.setMonth(newExpirationDate.getMonth() + 1);
         }
+        newExpirationDate.setDate(newExpirationDate.getDate() + 30);
 
         formattedExpDate = newExpirationDate.toISOString().substring(0, 10);
 
@@ -945,23 +939,14 @@ app.post("/api/webhook", express.raw({ type: "application/json" }), async (req, 
         let newExpirationDate = new Date();
 
         if (!getError && currentSalon && currentSalon.expiration_date) {
-          // Extrai apenas os primeiros 10 caracteres (YYYY-MM-DD) para parsing ultra seguro
           const dateOnlyStr = String(currentSalon.expiration_date).substring(0, 10);
           const currentExp = new Date(dateOnlyStr + "T20:00:00");
           const today = new Date();
-
           if (!isNaN(currentExp.getTime()) && currentExp > today) {
-            // Pagamento ANTES do vencimento: Soma +1 mês sobre a data de vencimento atual
-            newExpirationDate = new Date(currentExp);
-            newExpirationDate.setMonth(newExpirationDate.getMonth() + 1);
-          } else {
-            // Pagamento DEPOIS do vencimento: Nova data = Hoje + 1 mês
-            newExpirationDate.setMonth(newExpirationDate.getMonth() + 1);
+            newExpirationDate = currentExp;
           }
-        } else {
-          // Inexistente ou sem data: Nova data = Hoje + 1 mês
-          newExpirationDate.setMonth(newExpirationDate.getMonth() + 1);
         }
+        newExpirationDate.setDate(newExpirationDate.getDate() + 30);
 
         const formattedExpDate = newExpirationDate.toISOString().substring(0, 10);
 
