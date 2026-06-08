@@ -484,9 +484,7 @@ export default function App() {
         professionals: loadProfessionals(),
         services: loadServices(),
         products: loadProducts(),
-        clients: loadClients(),
-        financials: loadFinancials(),
-        appointments: loadAppointments()
+        financials: loadFinancials()
       };
 
       const response = await fetch("/api/supa-sync", {
@@ -596,9 +594,40 @@ export default function App() {
     saveProducts(updated);
   };
 
-  const triggerUpdateClients = (list: Client[]) => {
+  const triggerUpdateClients = async (list: Client[]) => {
     if (isMutationBlocked("Salvar Clientes")) return;
     const all = loadClients();
+    const oldList = all.filter(c => c.salonId === currentSalon?.id);
+    const oldIds = new Set(oldList.map(c => c.id));
+    const newIds = new Set(list.map(c => c.id));
+    const added = list.filter(c => !oldIds.has(c.id));
+    const deleted = oldList.filter(c => !newIds.has(c.id));
+
+    try {
+      for (const client of added) {
+        await fetch("/api/clients", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(client)
+        });
+      }
+      for (const client of list) {
+        if (oldIds.has(client.id)) {
+          await fetch(`/api/clients/${client.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(client)
+          });
+        }
+      }
+      for (const client of deleted) {
+        await fetch(`/api/clients/${client.id}`, { method: "DELETE" });
+      }
+    } catch (err) {
+      console.warn("[Client Sync] Falha ao sincronizar cliente com Supabase", err);
+      return;
+    }
+
     const updated = all.filter(c => c.salonId !== currentSalon?.id).concat(list);
     setClients(list);
     saveClients(updated);
@@ -883,7 +912,7 @@ export default function App() {
   };
 
   // Convert booked appointment into Comanda
-  const handleConvertAppToComandaObj = (app: Appointment) => {
+  const handleConvertAppToComandaObj = async (app: Appointment) => {
     if (isMutationBlocked("Converter Agendamento em Comanda")) return;
     const nextTicketNumber = `CMD-000${comandas.length + 1}`;
     
@@ -940,10 +969,17 @@ export default function App() {
     handleAddComandaObj(newComanda);
 
     // Remove appointment
-    handleDeleteAppointmentObj(app.id);
+    await handleDeleteAppointmentObj(app.id);
   };
 
-  const handleDeleteAppointmentObj = (id: string) => {
+  const handleDeleteAppointmentObj = async (id: string) => {
+    try {
+      const response = await fetch(`/api/appointments/${id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Falha ao excluir agendamento no Supabase");
+    } catch (err) {
+      console.warn("[Appointment Sync] Falha ao excluir agendamento no Supabase", err);
+      return;
+    }
     const allAppts = loadAppointments();
     const filtered = allAppts.filter(a => a.id !== id);
     saveAppointments(filtered);
@@ -952,7 +988,18 @@ export default function App() {
     }
   };
 
-  const handleAddAppointmentObj = (newApp: Appointment) => {
+  const handleAddAppointmentObj = async (newApp: Appointment) => {
+    try {
+      const response = await fetch("/api/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newApp)
+      });
+      if (!response.ok) throw new Error("Falha ao criar agendamento no Supabase");
+    } catch (err) {
+      console.warn("[Appointment Sync] Falha ao criar agendamento no Supabase", err);
+      return;
+    }
     const allAppts = loadAppointments();
     allAppts.push(newApp);
     saveAppointments(allAppts);
@@ -961,7 +1008,18 @@ export default function App() {
     }
   };
 
-  const handleUpdateAppointmentObj = (updatedApp: Appointment) => {
+  const handleUpdateAppointmentObj = async (updatedApp: Appointment) => {
+    try {
+      const response = await fetch(`/api/appointments/${updatedApp.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedApp)
+      });
+      if (!response.ok) throw new Error("Falha ao atualizar agendamento no Supabase");
+    } catch (err) {
+      console.warn("[Appointment Sync] Falha ao atualizar agendamento no Supabase", err);
+      return;
+    }
     const all = loadAppointments();
     const idx = all.findIndex(a => a.id === updatedApp.id);
     if (idx !== -1) {

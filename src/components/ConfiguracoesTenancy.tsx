@@ -6,10 +6,7 @@ import {
   loadProfessionals,
   loadServices,
   loadProducts,
-  loadClients,
-  loadComandas,
-  loadFinancials,
-  loadAppointments
+  loadFinancials
 } from '../dataStore';
 import { formatCNPJ, formatPhone } from '../utils';
 import { fetchTenantPixConfig, saveTenantPixConfig } from '../utils/pix/tenantPixConfig';
@@ -126,10 +123,10 @@ export default function ConfiguracoesTenancy({
         professionals: loadProfessionals(),
         services: loadServices(),
         products: loadProducts(),
-        clients: loadClients(),
-        // comandas não são mais enviadas por supa-sync — usam REST API própria
-        financials: loadFinancials(),
-        appointments: loadAppointments()
+        // comandas usam REST API própria — removidas do supa-sync para evitar recriação
+        // clients usam REST API própria — removidas do supa-sync para evitar recriação
+        // appointments usam REST API própria — removidas do supa-sync para evitar recriação
+        financials: loadFinancials()
       };
 
       const response = await fetch("/api/supa-sync", {

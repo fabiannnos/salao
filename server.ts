@@ -179,9 +179,7 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
         professionals: (payload.professionals || []).length,
         services: (payload.services || []).length,
         products: (payload.products || []).length,
-        clients: (payload.clients || []).length,
-        financials: (payload.financials || []).length,
-        appointments: (payload.appointments || []).length,
+        financials: (payload.financials || []).length
       }
     });
   }
@@ -251,18 +249,6 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
       commission_rate: p.commissionRate !== undefined ? p.commissionRate : null
     });
 
-    const mapClient = (c: any) => ({
-      id: c.id,
-      salon_id: c.salonId,
-      name: c.name,
-      phone: c.phone || null,
-      email: c.email || null,
-      fidelity_points: c.fidelityPoints !== undefined ? c.fidelityPoints : 0,
-      birthday_month: c.birthDayMonth || null
-    });
-
-    const mapComanda = comandaToDb;
-
     const mapFinancial = (f: any) => ({
       id: f.id,
       salon_id: f.salonId,
@@ -278,23 +264,6 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
       reminder_date: f.reminderDate || null
     });
 
-    const mapAppointment = (a: any) => ({
-      id: a.id,
-      salon_id: a.salonId,
-      client_id: a.clientId || null,
-      client_name: a.clientName || null,
-      client_phone: a.clientPhone || null,
-      professional_id: a.professionalId || null,
-      professional_name: a.professionalName || null,
-      service_id: a.serviceId || null,
-      service_name: a.serviceName || null,
-      date: a.date || null,
-      time: a.time || null,
-      status: a.status || null,
-      price: a.price !== undefined ? a.price : 0,
-      services: Array.isArray(a.services) ? a.services : null
-    });
-
     // We MUST execute sequentially in a specific dependency hierarchy: 
     // 1. Tenants (parent)
     // 2. Others (dependents references)
@@ -303,10 +272,10 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
       { key: "professionals", table: "professionals", mapper: mapProfessional },
       { key: "services", table: "services", mapper: mapService },
       { key: "products", table: "products", mapper: mapProduct },
-      { key: "clients", table: "clients", mapper: mapClient },
       // Comandas usam REST API própria — removidas do supa-sync para evitar recriação
       { key: "financials", table: "financials", mapper: mapFinancial },
-      { key: "appointments", table: "appointments", mapper: mapAppointment },
+      // Clients usam REST API própria — removidas do supa-sync para evitar recriação
+      // Appointments usam REST API própria — removidas do supa-sync para evitar recriação
     ];
 
     for (const mapping of tableMappers) {
@@ -1160,6 +1129,192 @@ app.delete("/api/comandas/:id", async (req, res) => {
   try {
     const supabase = getSupabase();
     const { error } = await supabase.from("comandas").delete().eq("id", req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Mapeamento de clientes: camelCase (frontend) ↔ snake_case (Supabase)
+// ---------------------------------------------------------------------------
+
+function clientToDb(c: any) {
+  return {
+    id: c.id,
+    salon_id: c.salonId,
+    name: c.name,
+    phone: c.phone || null,
+    email: c.email || null,
+    fidelity_points: c.fidelityPoints !== undefined ? c.fidelityPoints : 0,
+    birthday_month: c.birthDayMonth || null
+  };
+}
+
+function clientFromDb(db: any) {
+  return {
+    id: db.id,
+    salonId: db.salon_id,
+    name: db.name,
+    phone: db.phone || '',
+    email: db.email || '',
+    fidelityPoints: db.fidelity_points !== undefined ? db.fidelity_points : 0,
+    birthDayMonth: db.birthday_month || undefined
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Mapeamento de agendamentos: camelCase (frontend) ↔ snake_case (Supabase)
+// ---------------------------------------------------------------------------
+
+function appointmentToDb(a: any) {
+  return {
+    id: a.id,
+    salon_id: a.salonId,
+    client_id: a.clientId || null,
+    client_name: a.clientName || null,
+    client_phone: a.clientPhone || null,
+    professional_id: a.professionalId || null,
+    professional_name: a.professionalName || null,
+    service_id: a.serviceId || null,
+    service_name: a.serviceName || null,
+    date: a.date || null,
+    time: a.time || null,
+    status: a.status || null,
+    price: a.price !== undefined ? a.price : 0,
+    services: Array.isArray(a.services) ? a.services : null
+  };
+}
+
+function appointmentFromDb(db: any) {
+  return {
+    id: db.id,
+    salonId: db.salon_id,
+    clientId: db.client_id,
+    clientName: db.client_name,
+    clientPhone: db.client_phone,
+    professionalId: db.professional_id,
+    professionalName: db.professional_name,
+    serviceId: db.service_id,
+    serviceName: db.service_name,
+    date: db.date,
+    time: db.time,
+    status: db.status || 'Confirmado',
+    price: db.price !== undefined ? db.price : 0,
+    services: Array.isArray(db.services) ? db.services : null
+  };
+}
+
+// ---------------------------------------------------------------------------
+// REST API — Clients (fonte de verdade: Supabase)
+// ---------------------------------------------------------------------------
+
+app.get("/api/clients", async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const salonId = req.query.salon_id as string;
+    let query = supabase.from("clients").select("*");
+    if (salonId) {
+      query = query.eq("salon_id", salonId);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    const clients = (data || []).map(clientFromDb);
+    res.json({ success: true, clients });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/clients", express.json(), async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const dbClient = clientToDb(req.body);
+    const { data, error } = await supabase.from("clients").insert(dbClient).select();
+    if (error) throw error;
+    const client = data?.[0] ? clientFromDb(data[0]) : null;
+    res.json({ success: true, client });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.put("/api/clients/:id", express.json(), async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const dbClient = clientToDb(req.body);
+    const { data, error } = await supabase.from("clients").update(dbClient).eq("id", req.params.id).select();
+    if (error) throw error;
+    const client = data?.[0] ? clientFromDb(data[0]) : null;
+    res.json({ success: true, client });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete("/api/clients/:id", async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { error } = await supabase.from("clients").delete().eq("id", req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// REST API — Appointments (fonte de verdade: Supabase)
+// ---------------------------------------------------------------------------
+
+app.get("/api/appointments", async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const salonId = req.query.salon_id as string;
+    let query = supabase.from("appointments").select("*");
+    if (salonId) {
+      query = query.eq("salon_id", salonId);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    const appointments = (data || []).map(appointmentFromDb);
+    res.json({ success: true, appointments });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/appointments", express.json(), async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const dbAppointment = appointmentToDb(req.body);
+    const { data, error } = await supabase.from("appointments").insert(dbAppointment).select();
+    if (error) throw error;
+    const appointment = data?.[0] ? appointmentFromDb(data[0]) : null;
+    res.json({ success: true, appointment });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.put("/api/appointments/:id", express.json(), async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const dbAppointment = appointmentToDb(req.body);
+    const { data, error } = await supabase.from("appointments").update(dbAppointment).eq("id", req.params.id).select();
+    if (error) throw error;
+    const appointment = data?.[0] ? appointmentFromDb(data[0]) : null;
+    res.json({ success: true, appointment });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete("/api/appointments/:id", async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { error } = await supabase.from("appointments").delete().eq("id", req.params.id);
     if (error) throw error;
     res.json({ success: true });
   } catch (err: any) {
