@@ -180,7 +180,6 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
         services: (payload.services || []).length,
         products: (payload.products || []).length,
         clients: (payload.clients || []).length,
-        comandas: (payload.comandas || []).length,
         financials: (payload.financials || []).length,
         appointments: (payload.appointments || []).length,
       }
@@ -262,33 +261,7 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
       birthday_month: c.birthDayMonth || null
     });
 
-    const mapComanda = (com: any) => ({
-      id: com.id,
-      salon_id: com.salonId,
-      ticket_number: com.ticketNumber || null,
-      client_id: com.clientId || null,
-      client_name: com.clientName || null,
-      client_phone: com.clientPhone || null,
-      services: Array.isArray(com.services) ? com.services : null,
-      products: Array.isArray(com.products) ? com.products : null,
-      total_value: com.totalValue !== undefined ? com.totalValue : 0,
-      status: com.status || 'Aberto',
-      date_created: com.dateCreated || null,
-      payment_date: com.paymentDate || null,
-      payment_method: com.paymentMethod || null,
-      is_fiado: com.isFiado !== undefined ? com.isFiado : false,
-      obs: com.obs || null,
-      card_acquirer_id: com.cardAcquirerId || null,
-      card_acquirer_name: com.cardAcquirerName || null,
-      card_brand: com.cardBrand || null,
-      card_installments: com.cardInstallments || null,
-      card_fee_amount: com.cardFeeAmount || null,
-      card_fee_rate_used: com.cardFeeRateUsed || null,
-      prof_deduct_percentage: com.profDeductPercentage || null,
-      salon_deduct_percentage: com.salonDeductPercentage || null,
-      prof_card_fee_deduction: com.profCardFeeDeduction || null,
-      salon_card_fee_deduction: com.salonCardFeeDeduction || null
-    });
+    const mapComanda = comandaToDb;
 
     const mapFinancial = (f: any) => ({
       id: f.id,
@@ -331,7 +304,7 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
       { key: "services", table: "services", mapper: mapService },
       { key: "products", table: "products", mapper: mapProduct },
       { key: "clients", table: "clients", mapper: mapClient },
-      { key: "comandas", table: "comandas", mapper: mapComanda },
+      // Comandas usam REST API própria — removidas do supa-sync para evitar recriação
       { key: "financials", table: "financials", mapper: mapFinancial },
       { key: "appointments", table: "appointments", mapper: mapAppointment },
     ];
@@ -387,9 +360,6 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
             console.warn("Erro ao tentar mesclar dados autoritativos do banco de dados antes do upsert:", mErr);
           }
         }
-
-        console.log("TABELA", mapping.table);
-        console.log("PAYLOAD", JSON.stringify(sanitized, null, 2));
 
         const result = await supabase.from(mapping.table).upsert(sanitized);
         const { error } = result;
@@ -1073,6 +1043,128 @@ app.post("/api/webhook", express.raw({ type: "application/json" }), async (req, 
   }
 
   res.json({ received: true });
+});
+
+// ---------------------------------------------------------------------------
+// Mapeamento de comandas: camelCase (frontend) ↔ snake_case (Supabase)
+// ---------------------------------------------------------------------------
+
+function comandaToDb(com: any) {
+  return {
+    id: com.id,
+    salon_id: com.salonId,
+    ticket_number: com.ticketNumber || null,
+    client_id: com.clientId || null,
+    client_name: com.clientName || null,
+    client_phone: com.clientPhone || null,
+    services: Array.isArray(com.services) ? com.services : null,
+    products: Array.isArray(com.products) ? com.products : null,
+    total_value: com.totalValue !== undefined ? com.totalValue : 0,
+    status: com.status || 'Aberto',
+    date_created: com.dateCreated || null,
+    payment_date: com.paymentDate || null,
+    payment_method: com.paymentMethod || null,
+    is_fiado: com.isFiado !== undefined ? com.isFiado : false,
+    obs: com.obs || null,
+    card_acquirer_id: com.cardAcquirerId || null,
+    card_acquirer_name: com.cardAcquirerName || null,
+    card_brand: com.cardBrand || null,
+    card_installments: com.cardInstallments || null,
+    card_fee_amount: com.cardFeeAmount || null,
+    card_fee_rate_used: com.cardFeeRateUsed || null,
+    prof_deduct_percentage: com.profDeductPercentage || null,
+    salon_deduct_percentage: com.salonDeductPercentage || null,
+    prof_card_fee_deduction: com.profCardFeeDeduction || null,
+    salon_card_fee_deduction: com.salonCardFeeDeduction || null,
+  };
+}
+
+function comandaFromDb(db: any) {
+  return {
+    id: db.id,
+    salonId: db.salon_id,
+    ticketNumber: db.ticket_number,
+    clientId: db.client_id,
+    clientName: db.client_name,
+    clientPhone: db.client_phone,
+    services: db.services || [],
+    products: db.products || [],
+    totalValue: db.total_value || 0,
+    status: db.status || 'Aberto',
+    dateCreated: db.date_created,
+    paymentDate: db.payment_date,
+    paymentMethod: db.payment_method,
+    isFiado: db.is_fiado !== undefined ? db.is_fiado : false,
+    obs: db.obs || '',
+    cardAcquirerId: db.card_acquirer_id,
+    cardAcquirerName: db.card_acquirer_name,
+    cardBrand: db.card_brand,
+    cardInstallments: db.card_installments,
+    cardFeeAmount: db.card_fee_amount,
+    cardFeeRateUsed: db.card_fee_rate_used,
+    profDeductPercentage: db.prof_deduct_percentage,
+    salonDeductPercentage: db.salon_deduct_percentage,
+    profCardFeeDeduction: db.prof_card_fee_deduction,
+    salonCardFeeDeduction: db.salon_card_fee_deduction,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// REST API — Comandas (fonte de verdade: Supabase)
+// ---------------------------------------------------------------------------
+
+app.get("/api/comandas", async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const salonId = req.query.salon_id as string;
+    let query = supabase.from("comandas").select("*");
+    if (salonId) {
+      query = query.eq("salon_id", salonId);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    const comandas = (data || []).map(comandaFromDb);
+    res.json({ success: true, comandas });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/comandas", express.json(), async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const dbComanda = comandaToDb(req.body);
+    const { data, error } = await supabase.from("comandas").insert(dbComanda).select();
+    if (error) throw error;
+    const comanda = data?.[0] ? comandaFromDb(data[0]) : null;
+    res.json({ success: true, comanda });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.put("/api/comandas/:id", express.json(), async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const dbComanda = comandaToDb(req.body);
+    const { data, error } = await supabase.from("comandas").update(dbComanda).eq("id", req.params.id).select();
+    if (error) throw error;
+    const comanda = data?.[0] ? comandaFromDb(data[0]) : null;
+    res.json({ success: true, comanda });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete("/api/comandas/:id", async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { error } = await supabase.from("comandas").delete().eq("id", req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Vite middleware em dev / static em produção. Vercel usa CDN + rewrites.

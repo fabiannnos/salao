@@ -127,7 +127,7 @@ export default function ConfiguracoesTenancy({
         services: loadServices(),
         products: loadProducts(),
         clients: loadClients(),
-        comandas: loadComandas(),
+        // comandas não são mais enviadas por supa-sync — usam REST API própria
         financials: loadFinancials(),
         appointments: loadAppointments()
       };
@@ -586,7 +586,8 @@ export default function ConfiguracoesTenancy({
                       </div>
                       <button
                         onClick={handleSupaSync}
-                        disabled={syncStatus?.loading}
+                        disabled={syncStatus?.loading || isRestricted}
+                        title={isRestricted ? "Plano expirado. Renove para voltar a realizar alterações." : undefined}
                         className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold text-xs px-4 py-2 rounded-lg flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${syncStatus?.loading ? 'animate-spin' : ''}`} />
@@ -889,7 +890,8 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_admins integer DEFAULT 3;`}
                           setPixSaving(false);
                         }
                       }}
-                      disabled={pixLoading || pixSaving || !localPixKeyType || !localPixKey.trim()}
+                      disabled={pixLoading || pixSaving || !localPixKeyType || !localPixKey.trim() || isRestricted}
+                      title={isRestricted ? "Plano expirado. Renove para voltar a realizar alterações." : undefined}
                       className="w-full mt-1 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-stone-300 disabled:to-stone-300 disabled:cursor-not-allowed text-white font-extrabold text-[10.5px] uppercase tracking-wider rounded-lg transition-all cursor-pointer"
                     >
                       {pixSaving ? 'Salvando...' : 'Salvar Configuração PIX'}
@@ -1040,8 +1042,9 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_admins integer DEFAULT 3;`}
                           />
                           <button
                             type="button"
-                            onClick={() => handleSaveEditCategory(sc.id)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1 rounded text-[10px] h-8"
+                            onClick={() => { if (isRestricted) return; handleSaveEditCategory(sc.id); }}
+                            className={"bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1 rounded text-[10px] h-8" + (isRestricted ? " opacity-50" : "")}
+                            title={isRestricted ? "Plano expirado. Renove para voltar a realizar alterações." : undefined}
                           >
                             Salvar
                           </button>

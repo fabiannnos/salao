@@ -40,6 +40,7 @@ interface ComandasKanbanProps {
   onUpdateStatus: (id: string, status: ComandaStatus, payment?: string, isFiado?: boolean, cardDetails?: any, pixPayload?: string) => void;
   onDeleteComanda: (id: string) => void;
   currentSalon?: Salon | null;
+  isReadOnly?: boolean;
 }
 
 export default function ComandasKanban({
@@ -56,8 +57,11 @@ export default function ComandasKanban({
   onUpdateComandaObj,
   onUpdateStatus,
   onDeleteComanda,
-  currentSalon = null
+  currentSalon = null,
+  isReadOnly = false
 }: ComandasKanbanProps) {
+  const TOOLTIP_READONLY = "Plano expirado. Renove para voltar a realizar alterações.";
+
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
@@ -1048,21 +1052,27 @@ export default function ComandasKanban({
                         <td className="px-6 py-4">
                           <div className="flex justify-center items-center gap-1.5">
                             <button
-                              onClick={() => handleStartEditComanda(c)}
+                              onClick={() => {
+                                if (isReadOnly) return;
+                                handleStartEditComanda(c);
+                              }}
                               className="px-2.5 py-1.5 border border-amber-200 text-amber-750 bg-amber-50/55 hover:bg-amber-100/50 rounded-lg font-bold transition flex items-center gap-1 cursor-pointer text-[10px] tracking-wide uppercase"
+                              title={isReadOnly ? TOOLTIP_READONLY : undefined}
                             >
-                              <Edit2 className="w-3 h-3" />
-                              <span>Editar</span>
+                              <Edit2 className={`w-3 h-3 ${isReadOnly ? "opacity-50" : ""}`} />
+                              <span className={isReadOnly ? "opacity-50" : ""}>Editar</span>
                             </button>
                             <button
                               onClick={(e) => {
+                                if (isReadOnly) return;
                                 e.stopPropagation();
                                 setComandaToDelete(c);
                               }}
                               className="px-2.5 py-1.5 border border-rose-200 text-rose-600 bg-rose-50/55 hover:bg-rose-100/50 rounded-lg font-bold transition flex items-center gap-1 cursor-pointer text-[10px] tracking-wide uppercase"
+                              title={isReadOnly ? TOOLTIP_READONLY : undefined}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Excluir</span>
+                              <Trash2 className={`w-3.5 h-3.5 ${isReadOnly ? "opacity-50" : ""}`} />
+                              <span className={isReadOnly ? "opacity-50" : ""}>Excluir</span>
                             </button>
                           </div>
                         </td>
@@ -1147,27 +1157,29 @@ export default function ComandasKanban({
                                 <button
                                   type="button"
                                   onClick={(e) => {
+                                    if (isReadOnly) return;
                                     e.stopPropagation();
                                     handleStartEditComanda(c);
                                   }}
                                   className="flex items-center justify-center gap-1 py-1.5 px-2 bg-stone-50 hover:bg-stone-100 text-stone-600 hover:text-stone-950 border border-stone-200 rounded-lg text-[10px] font-bold transition cursor-pointer"
-                                  title="Editar Comanda"
+                                  title={isReadOnly ? TOOLTIP_READONLY : "Editar Comanda"}
                                 >
-                                  <Edit2 className="w-3 h-3" />
-                                  <span>Editar</span>
+                                  <Edit2 className={`w-3 h-3 ${isReadOnly ? "opacity-50" : ""}`} />
+                                  <span className={isReadOnly ? "opacity-50" : ""}>Editar</span>
                                 </button>
                                 
                                 <button
                                   type="button"
                                   onClick={(e) => {
+                                    if (isReadOnly) return;
                                     e.stopPropagation();
                                     setComandaToDelete(c);
                                   }}
                                   className="flex items-center justify-center gap-1 py-1.5 px-2 bg-rose-50/40 hover:bg-rose-50 text-rose-600 hover:text-rose-700 border border-rose-150 rounded-lg text-[10px] font-bold transition cursor-pointer"
-                                  title="Deletar Comanda"
+                                  title={isReadOnly ? TOOLTIP_READONLY : "Deletar Comanda"}
                                 >
-                                  <Trash2 className="w-3 h-3" />
-                                  <span>Excluir</span>
+                                  <Trash2 className={`w-3 h-3 ${isReadOnly ? "opacity-50" : ""}`} />
+                                  <span className={isReadOnly ? "opacity-50" : ""}>Excluir</span>
                                 </button>
 
                                 <button
@@ -1213,7 +1225,7 @@ export default function ComandasKanban({
                                 {c.ticketNumber}
                               </span>
 
-                              <div className="flex gap-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                              <div className="flex gap-1.5">
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -1720,12 +1732,16 @@ export default function ComandasKanban({
                   <button
                     type="button"
                     onClick={() => {
+                      if (isReadOnly) return;
                       setShowNewClientForm(!showNewClientForm);
                       setClientFormError(null);
                     }}
                     className="text-[11px] text-zinc-900 underline font-bold focus:outline-none"
+                    title={isReadOnly ? TOOLTIP_READONLY : undefined}
                   >
-                    {showNewClientForm ? "Cancelar no Cadastro" : "Criar Novo Cliente +"}
+                    <span className={isReadOnly ? "opacity-50" : ""}>
+                      {showNewClientForm ? "Cancelar no Cadastro" : "Criar Novo Cliente +"}
+                    </span>
                   </button>
                 </div>
 
@@ -1762,7 +1778,9 @@ export default function ComandasKanban({
                     </div>
                     <button
                       type="submit"
-                      className="w-full bg-black text-white py-2 rounded font-bold hover:bg-gold-800 transition text-[11px]"
+                      disabled={isReadOnly}
+                      title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                      className="w-full bg-black text-white py-2 rounded font-bold hover:bg-gold-800 transition text-[11px] disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Cadastrar Cliente
                     </button>
@@ -2372,8 +2390,10 @@ export default function ComandasKanban({
               <div className="space-y-3 pt-6 border-t border-stone-850">
                 <button
                   type="button"
+                  disabled={isReadOnly}
+                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
                   onClick={() => handleSaveComanda('Concluido', true)}
-                  className="w-full flex items-center justify-center gap-2 bg-[#e5b35f] hover:bg-[#eed093] text-black font-sans font-black text-xs py-3 rounded-full transition cursor-pointer uppercase shadow"
+                  className="w-full flex items-center justify-center gap-2 bg-[#e5b35f] hover:bg-[#eed093] text-black font-sans font-black text-xs py-3 rounded-full transition cursor-pointer uppercase shadow disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>Concluir e Enviar WhatsApp</span>
@@ -2381,8 +2401,10 @@ export default function ComandasKanban({
 
                 <button
                   type="button"
+                  disabled={isReadOnly}
+                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
                   onClick={() => handleSaveComanda('Concluido', false)}
-                  className="w-full flex items-center justify-center gap-2 bg-stone-900 border border-stone-700 hover:bg-stone-850 text-white font-sans font-bold text-xs py-3 rounded-full transition cursor-pointer uppercase shadow"
+                  className="w-full flex items-center justify-center gap-2 bg-stone-900 border border-stone-700 hover:bg-stone-850 text-white font-sans font-bold text-xs py-3 rounded-full transition cursor-pointer uppercase shadow disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5 text-[#eed093]" />
                   <span>Apenas Concluir Comanda</span>
@@ -2390,8 +2412,10 @@ export default function ComandasKanban({
 
                 <button
                   type="button"
+                  disabled={isReadOnly}
+                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
                   onClick={() => handleSaveComanda('Aberto', false)}
-                  className="w-full flex items-center justify-center gap-1.5 bg-transparent border border-stone-800 hover:border-stone-500 text-stone-200 hover:text-white transition py-3.5 text-xs rounded-full cursor-pointer font-bold"
+                  className="w-full flex items-center justify-center gap-1.5 bg-transparent border border-stone-800 hover:border-stone-500 text-stone-200 hover:text-white transition py-3.5 text-xs rounded-full cursor-pointer font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span>Abrir comanda provisoriamente</span>
                 </button>

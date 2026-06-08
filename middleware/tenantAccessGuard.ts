@@ -65,6 +65,8 @@ function isTenantExpired(
 // Middleware
 // ---------------------------------------------------------------------------
 
+const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 export function tenantAccessGuard(
   req: Request,
   res: Response,
@@ -77,7 +79,12 @@ export function tenantAccessGuard(
     return next();
   }
 
-  // 2. Rotas do allowlist passam sem verificação
+  // 2. Métodos GET/HEAD (leitura) sempre liberados
+  if (!WRITE_METHODS.has(req.method)) {
+    return next();
+  }
+
+  // 3. Rotas do allowlist passam sem verificação
   if (isAllowedPath(path)) {
     return next();
   }
@@ -93,9 +100,8 @@ export function tenantAccessGuard(
   if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
     if (cached.isExpired) {
       res.status(403).json({
-        error: "TENANT_EXPIRED",
-        message:
-          "Assinatura expirada. Renove para continuar usando o sistema.",
+        success: false,
+        error: "Plano expirado. Conta em modo somente leitura.",
       });
       return;
     }
@@ -134,9 +140,8 @@ export function tenantAccessGuard(
 
         if (expired) {
           res.status(403).json({
-            error: "TENANT_EXPIRED",
-            message:
-              "Assinatura expirada. Renove para continuar usando o sistema.",
+            success: false,
+            error: "Plano expirado. Conta em modo somente leitura.",
           });
           return;
         }

@@ -21,7 +21,10 @@ interface ColecoesCrudProps {
   onUpdateClients: (list: Client[]) => void;
   onUpdateServiceCategories?: (list: ServiceCategory[]) => void;
   onUpdateCardAcquirers?: (list: CardAcquirer[]) => void;
+  isReadOnly?: boolean;
 }
+
+const TOOLTIP_READONLY = "Plano expirado. Renove para voltar a realizar alterações.";
 
 export default function ColecoesCrud({
   salonId,
@@ -38,7 +41,8 @@ export default function ColecoesCrud({
   onUpdateProducts,
   onUpdateClients,
   onUpdateServiceCategories,
-  onUpdateCardAcquirers
+  onUpdateCardAcquirers,
+  isReadOnly = false
 }: ColecoesCrudProps) {
   const [activeCatalog, setActiveCatalog] = useState<'profissionais' | 'servicos' | 'produtos' | 'clientes' | 'cartoes'>('profissionais');
   
@@ -915,6 +919,7 @@ export default function ColecoesCrud({
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
+              if (isReadOnly) return;
               setEditingItemId(null);
               if (activeCatalog === 'cartoes') {
                 setAcqName('');
@@ -923,7 +928,8 @@ export default function ColecoesCrud({
               }
               setShowFormModal(true);
             }}
-            className="bg-black hover:bg-gold-500 text-white font-bold text-xs py-2 px-5 rounded-full flex items-center gap-1.5 transition cursor-pointer"
+            className={"bg-black hover:bg-gold-500 text-white font-bold text-xs py-2 px-5 rounded-full flex items-center gap-1.5 transition cursor-pointer" + (isReadOnly ? " opacity-50" : "")}
+            title={isReadOnly ? TOOLTIP_READONLY : undefined}
           >
             <Plus className="w-4 h-4" />
             <span>Cadastrar Novo</span>
@@ -974,7 +980,11 @@ export default function ColecoesCrud({
               </button>
 
               {/* Import Button */}
-              <label className="bg-emerald-600 hover:bg-emerald-700 text-white py-1.5 px-4 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs">
+              <label
+                className={"bg-emerald-600 hover:bg-emerald-700 text-white py-1.5 px-4 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs" + (isReadOnly ? " opacity-50" : "")}
+                title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                onClick={(e) => { if (isReadOnly) e.preventDefault(); }}
+              >
                 <Upload className="w-3.5 h-3.5" />
                 <span>Importar Planilha (.CSV)</span>
                 <input
@@ -993,8 +1003,9 @@ export default function ColecoesCrud({
               {activeCatalog === 'servicos' && services.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setShowClearAllConfirm(true)}
-                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 py-1.5 px-4 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                  onClick={() => { if (isReadOnly) return; setShowClearAllConfirm(true); }}
+                  className={"bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 py-1.5 px-4 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs" + (isReadOnly ? " opacity-50" : "")}
+                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
                 >
                   <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                   <span>Apagar Todos os Serviços ({services.length})</span>
@@ -1144,15 +1155,17 @@ export default function ColecoesCrud({
                       <td className="px-8 py-4 text-right">
                         <div className="flex gap-2 justify-end">
                           <button
-                            onClick={() => handleStartEdit(p, 'profissionais')}
-                            className="bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-lg py-1 px-2.5 border border-stone-250 transition cursor-pointer flex items-center gap-1 font-bold"
+                            onClick={() => { if (isReadOnly) return; handleStartEdit(p, 'profissionais'); }}
+                            className={"bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-lg py-1 px-2.5 border border-stone-250 transition cursor-pointer flex items-center gap-1 font-bold" + (isReadOnly ? " opacity-50" : "")}
+                            title={isReadOnly ? TOOLTIP_READONLY : undefined}
                           >
                             <Edit className="w-3.5 h-3.5" />
                             <span>Editar</span>
                           </button>
                           <button
-                            onClick={() => handleDeleteProfessional(p.id)}
-                            className="p-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition border border-rose-200 cursor-pointer"
+                            onClick={() => { if (isReadOnly) return; handleDeleteProfessional(p.id); }}
+                            className={"p-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition border border-rose-200 cursor-pointer" + (isReadOnly ? " opacity-50" : "")}
+                            title={isReadOnly ? TOOLTIP_READONLY : undefined}
                           >
                             Remover
                           </button>
@@ -1240,15 +1253,17 @@ export default function ColecoesCrud({
                       <td className="px-8 py-4 text-right">
                         <div className="flex gap-2 justify-end">
                           <button
-                            onClick={() => handleStartEdit(s, 'servicos')}
-                            className="bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-lg py-1 px-2.5 border border-stone-250 transition cursor-pointer flex items-center gap-1 font-bold"
+                            onClick={() => { if (isReadOnly) return; handleStartEdit(s, 'servicos'); }}
+                            className={"bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-lg py-1 px-2.5 border border-stone-250 transition cursor-pointer flex items-center gap-1 font-bold" + (isReadOnly ? " opacity-50" : "")}
+                            title={isReadOnly ? TOOLTIP_READONLY : undefined}
                           >
                             <Edit className="w-3.5 h-3.5" />
                             <span>Editar</span>
                           </button>
                           <button
-                            onClick={() => handleDeleteService(s.id)}
-                            className="p-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-200 transition cursor-pointer font-bold"
+                            onClick={() => { if (isReadOnly) return; handleDeleteService(s.id); }}
+                            className={"p-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-200 transition cursor-pointer font-bold" + (isReadOnly ? " opacity-50" : "")}
+                            title={isReadOnly ? TOOLTIP_READONLY : undefined}
                           >
                             Excluir
                           </button>
@@ -1297,19 +1312,21 @@ export default function ColecoesCrud({
                         <td className="px-8 py-4 text-right font-bold text-stone-900">{formatCurrency(p.price)}</td>
                         <td className="px-8 py-4 text-right">
                           <div className="flex gap-2 justify-end">
-                            <button
-                              onClick={() => handleStartEdit(p, 'produtos')}
-                              className="bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-lg py-1 px-2.5 border border-stone-250 transition cursor-pointer flex items-center gap-1 font-bold"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                              <span>Editar</span>
-                            </button>
-                            <button
-                              onClick={() => handleDeleteProduct(p.id)}
-                              className="p-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg transition cursor-pointer"
-                            >
-                              Excluir
-                            </button>
+                          <button
+                            onClick={() => { if (isReadOnly) return; handleStartEdit(p, 'produtos'); }}
+                            className={"bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-lg py-1 px-2.5 border border-stone-250 transition cursor-pointer flex items-center gap-1 font-bold" + (isReadOnly ? " opacity-50" : "")}
+                            title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                            <span>Editar</span>
+                          </button>
+                          <button
+                            onClick={() => { if (isReadOnly) return; handleDeleteProduct(p.id); }}
+                            className={"p-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg transition cursor-pointer" + (isReadOnly ? " opacity-50" : "")}
+                            title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                          >
+                            Excluir
+                          </button>
                           </div>
                         </td>
                       </tr>
@@ -1360,15 +1377,17 @@ export default function ColecoesCrud({
                       <td className="px-8 py-4 text-right">
                         <div className="flex gap-2 justify-end">
                           <button
-                            onClick={() => handleStartEdit(c, 'clientes')}
-                            className="bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-lg py-1 px-2.5 border border-stone-250 transition cursor-pointer flex items-center gap-1 font-bold"
+                            onClick={() => { if (isReadOnly) return; handleStartEdit(c, 'clientes'); }}
+                            className={"bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-lg py-1 px-2.5 border border-stone-250 transition cursor-pointer flex items-center gap-1 font-bold" + (isReadOnly ? " opacity-50" : "")}
+                            title={isReadOnly ? TOOLTIP_READONLY : undefined}
                           >
                             <Edit className="w-3.5 h-3.5" />
                             <span>Editar</span>
                           </button>
                           <button
-                            onClick={() => handleDeleteClient(c.id)}
-                            className="p-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition border border-rose-200 cursor-pointer"
+                            onClick={() => { if (isReadOnly) return; handleDeleteClient(c.id); }}
+                            className={"p-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition border border-rose-200 cursor-pointer" + (isReadOnly ? " opacity-50" : "")}
+                            title={isReadOnly ? TOOLTIP_READONLY : undefined}
                           >
                             Remover
                           </button>
@@ -1436,19 +1455,21 @@ export default function ColecoesCrud({
                         </td>
                         <td className="px-8 py-4 text-right">
                           <div className="flex gap-2 justify-end">
-                            <button
-                              onClick={() => handleStartEdit(acq, 'cartoes')}
-                              className="bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-lg py-1 px-2.5 border border-stone-250 transition cursor-pointer flex items-center gap-1 font-bold"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                              <span>Editar</span>
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirm({ id: acq.id, type: 'cartoes', name: acq.name })}
-                              className="p-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition border border-rose-200 cursor-pointer"
-                            >
-                              Remover
-                            </button>
+                          <button
+                            onClick={() => { if (isReadOnly) return; handleStartEdit(acq, 'cartoes'); }}
+                            className={"bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-lg py-1 px-2.5 border border-stone-250 transition cursor-pointer flex items-center gap-1 font-bold" + (isReadOnly ? " opacity-50" : "")}
+                            title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                            <span>Editar</span>
+                          </button>
+                          <button
+                            onClick={() => { if (isReadOnly) return; setDeleteConfirm({ id: acq.id, type: 'cartoes', name: acq.name }); }}
+                            className={"p-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition border border-rose-200 cursor-pointer" + (isReadOnly ? " opacity-50" : "")}
+                            title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                          >
+                            Remover
+                          </button>
                           </div>
                         </td>
                       </tr>
@@ -1733,7 +1754,9 @@ export default function ColecoesCrud({
 
                 <button
                   type="submit"
-                  className="w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer font-sans"
+                  disabled={isReadOnly}
+                  className={"w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer font-sans" + (isReadOnly ? " opacity-50" : "")}
+                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
                 >
                   Salvar Cadastro do Profissional
                 </button>
@@ -1806,7 +1829,9 @@ export default function ColecoesCrud({
 
                 <button
                   type="submit"
-                  className="w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer"
+                  disabled={isReadOnly}
+                  className={"w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer" + (isReadOnly ? " opacity-50" : "")}
+                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
                 >
                   Salvar Serviço no Catálogo
                 </button>
@@ -1878,7 +1903,9 @@ export default function ColecoesCrud({
 
                 <button
                   type="submit"
-                  className="w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer"
+                  disabled={isReadOnly}
+                  className={"w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer" + (isReadOnly ? " opacity-50" : "")}
+                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
                 >
                   Confirmar e Salvar Produto
                 </button>
@@ -1967,7 +1994,9 @@ export default function ColecoesCrud({
 
                 <button
                   type="submit"
-                  className="w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer font-sans"
+                  disabled={isReadOnly}
+                  className={"w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer font-sans" + (isReadOnly ? " opacity-50" : "")}
+                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
                 >
                   Confirmar Cadastro da Cliente
                 </button>
@@ -2100,7 +2129,9 @@ export default function ColecoesCrud({
 
                 <button
                   type="submit"
-                  className="w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer font-sans"
+                  disabled={isReadOnly}
+                  className={"w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer font-sans" + (isReadOnly ? " opacity-50" : "")}
+                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
                 >
                   {editingItemId ? 'Atualizar Administradora' : 'Salvar Nova Administradora'}
                 </button>
@@ -2174,11 +2205,13 @@ export default function ColecoesCrud({
               <button
                 type="button"
                 onClick={() => {
+                  if (isReadOnly) return;
                   onUpdateServices([]);
                   setShowClearAllConfirm(false);
                   setAlertState({message: "Todos os serviços foram removidos com sucesso! Você já pode prosseguir com a importação da sua nova planilha.", variant: 'success'});
                 }}
-                className="bg-rose-600 hover:bg-rose-700 text-white py-2 px-4 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1 shadow-sm"
+                className={"bg-rose-600 hover:bg-rose-700 text-white py-2 px-4 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1 shadow-sm" + (isReadOnly ? " opacity-50" : "")}
+                title={isReadOnly ? TOOLTIP_READONLY : undefined}
               >
                 <span>Sim, Apagar Tudo</span>
               </button>

@@ -376,13 +376,12 @@ export default function App() {
     return false;
   };
 
-  // Tabs permitidas apenas quando ACTIVE
-  const blockedTabs = new Set(["agendamentos", "comandas", "financeiro", "relatorios", "colecoes"]);
-
-  const isTabBlocked = (tabId: string): boolean => {
-    if (userRole === "SAAS_ADMIN") return false;
-    return tenantStatus === "EXPIRED" && blockedTabs.has(tabId);
+  // Todas as tabs são acessíveis em modo somente leitura
+  const isTabBlocked = (_tabId?: string): boolean => {
+    return false;
   };
+
+  const isReadOnly = userRole !== "SAAS_ADMIN" && tenantStatus === "EXPIRED";
 
   // Inicia checkout real/simulado no Stripe através do backend fullstack
   const handleLaunchStripeCheckout = async () => {
@@ -486,7 +485,6 @@ export default function App() {
         services: loadServices(),
         products: loadProducts(),
         clients: loadClients(),
-        comandas: loadComandas(),
         financials: loadFinancials(),
         appointments: loadAppointments()
       };
@@ -639,8 +637,21 @@ export default function App() {
   };
 
   // Comanda status trigger updates with active financial logging
-  const handleAddComandaObj = (newComanda: Comanda) => {
+  const handleAddComandaObj = async (newComanda: Comanda) => {
     if (isMutationBlocked("Criar Comanda")) return;
+    try {
+      const res = await fetch("/api/comandas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newComanda)
+      });
+      const data = await res.json();
+      if (!data.success) {
+        console.warn("[Comanda Create] Falha ao criar no servidor:", data.error);
+      }
+    } catch (err) {
+      console.warn("[Comanda Create] Erro de rede ao criar no servidor:", err);
+    }
     const { comanda, triggeredFinance } = addComandaAndUpdateFinance(newComanda);
     
     // Update active states
@@ -650,8 +661,21 @@ export default function App() {
     }
   };
 
-  const handleUpdateComandaObj = (updatedComanda: Comanda) => {
+  const handleUpdateComandaObj = async (updatedComanda: Comanda) => {
     if (isMutationBlocked("Atualizar Comanda")) return;
+    try {
+      const res = await fetch(`/api/comandas/${updatedComanda.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedComanda)
+      });
+      const data = await res.json();
+      if (!data.success) {
+        console.warn("[Comanda Update] Falha ao atualizar no servidor:", data.error);
+      }
+    } catch (err) {
+      console.warn("[Comanda Update] Erro de rede ao atualizar no servidor:", err);
+    }
     const all = loadComandas();
     const idx = all.findIndex(c => c.id === updatedComanda.id);
     if (idx !== -1) {
@@ -663,10 +687,23 @@ export default function App() {
     }
   };
 
-  const handleUpdateComandaStatus = (id: string, newStatus: ComandaStatus, payment?: any, isFiado?: boolean, cardDetails?: any, pixPayload?: string) => {
+  const handleUpdateComandaStatus = async (id: string, newStatus: ComandaStatus, payment?: any, isFiado?: boolean, cardDetails?: any, pixPayload?: string) => {
     if (isMutationBlocked("Dar Baixa de Pagamento na Comanda")) return;
     const updated = updateComandaStatus(id, newStatus, payment, isFiado, cardDetails, pixPayload);
     if (updated) {
+      try {
+        const res = await fetch(`/api/comandas/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updated)
+        });
+        const data = await res.json();
+        if (!data.success) {
+          console.warn("[Comanda Status] Falha ao atualizar status no servidor:", data.error);
+        }
+      } catch (err) {
+        console.warn("[Comanda Status] Erro de rede ao atualizar status no servidor:", err);
+      }
       // Reload comandas and financials
       if (currentSalon) {
         setComandas(loadComandas(currentSalon.id));
@@ -676,8 +713,19 @@ export default function App() {
     }
   };
 
-  const handleDeleteComandaObj = (id: string) => {
+  const handleDeleteComandaObj = async (id: string) => {
     if (isMutationBlocked("Excluir Comanda")) return;
+    try {
+      const res = await fetch(`/api/comandas/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.success) {
+        console.warn("[Comanda Delete] Falha ao deletar no servidor:", data.error);
+        return;
+      }
+    } catch (err) {
+      console.warn("[Comanda Delete] Erro de rede ao deletar no servidor:", err);
+      return;
+    }
     const allComandas = loadComandas();
     const filtered = allComandas.filter(c => c.id !== id);
     saveComandas(filtered);
@@ -704,7 +752,7 @@ export default function App() {
     }
   };
 
-  const handleUpdateFinancialRecordObj = (updatedRecord: FinancialRecord) => {
+  const handleUpdateFinancialRecordObj = async (updatedRecord: FinancialRecord) => {
     if (isMutationBlocked("Atualizar Lançamento Financeiro")) return;
     const all = loadFinancials();
     const idx = all.findIndex(f => f.id === updatedRecord.id);
@@ -726,6 +774,15 @@ export default function App() {
             allComandas[cIdx].isFiado = true;
             allComandas[cIdx].paymentMethod = 'Caderno';
           }
+          try {
+            await fetch(`/api/comandas/${updatedRecord.relatedComandaId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(allComandas[cIdx])
+            });
+          } catch (err) {
+            console.warn("[Comanda Sync] Falha ao sincronizar comanda via financeiro:", err);
+          }
           saveComandas(allComandas);
           if (currentSalon) {
             setComandas(allComandas.filter(c => c.salonId === currentSalon.id));
@@ -739,15 +796,24 @@ export default function App() {
     }
   };
 
-  const handleDeleteFinancialRecordObj = (id: string) => {
+  const handleDeleteFinancialRecordObj = async (id: string) => {
     if (isMutationBlocked("Excluir Lançamento Financeiro")) return;
     const all = loadFinancials();
     const targetRecord = all.find(f => f.id === id);
-    const filtered = all.filter(f => f.id !== id);
-    saveFinancials(filtered);
 
-    // Bidirectional sync: if this has a related comanda, delete it too
+    // Se o registro financeiro tem comanda vinculada, deleta do Supabase primeiro
     if (targetRecord && targetRecord.relatedComandaId) {
+      try {
+        const res = await fetch(`/api/comandas/${targetRecord.relatedComandaId}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!data.success) {
+          console.warn("[Comanda Delete via Financeiro] Falha ao deletar comanda no servidor:", data.error);
+          return;
+        }
+      } catch (err) {
+        console.warn("[Comanda Delete via Financeiro] Erro de rede ao deletar comanda:", err);
+        return;
+      }
       const allComandas = loadComandas();
       const filteredComandas = allComandas.filter(c => c.id !== targetRecord.relatedComandaId);
       saveComandas(filteredComandas);
@@ -756,22 +822,40 @@ export default function App() {
       }
     }
 
+    const filtered = all.filter(f => f.id !== id);
+    saveFinancials(filtered);
     if (currentSalon) {
       setFinancials(filtered.filter(f => f.salonId === currentSalon.id));
     }
   };
 
   // Settle Accounts Receivables "No Caderno" Debt
-  const handleSettleDebtObj = (comandaId: string) => {
+  const handleSettleDebtObj = async (comandaId: string) => {
     if (isMutationBlocked("Liquidar Débito no Cadastro")) return;
     const allComandas = loadComandas();
     const cIdx = allComandas.findIndex(c => c.id === comandaId);
-    if (cIdx !== -1) {
-      allComandas[cIdx].isFiado = false;
-      allComandas[cIdx].paymentMethod = 'Pix';
-      allComandas[cIdx].paymentDate = new Date().toISOString().split('T')[0];
-      saveComandas(allComandas);
+    if (cIdx === -1) return;
+
+    // Persiste a quitação no Supabase primeiro
+    allComandas[cIdx].isFiado = false;
+    allComandas[cIdx].paymentMethod = 'Pix';
+    allComandas[cIdx].paymentDate = new Date().toISOString().split('T')[0];
+    try {
+      const res = await fetch(`/api/comandas/${comandaId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(allComandas[cIdx])
+      });
+      const data = await res.json();
+      if (!data.success) {
+        console.warn("[Settle Debt] Falha ao quitar comanda no servidor:", data.error);
+        return;
+      }
+    } catch (err) {
+      console.warn("[Settle Debt] Erro de rede ao quitar comanda:", err);
+      return;
     }
+    saveComandas(allComandas);
 
     // Update financial record entries
     const allFinancials = loadFinancials();
@@ -1565,9 +1649,9 @@ export default function App() {
                 <div className="flex gap-3">
                   <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                   <div>
-                    <strong className="block text-rose-950 font-extrabold text-sm">Assinatura Vencida — Sistema Bloqueado</strong>
+                    <strong className="block text-rose-950 font-extrabold text-sm">Sua assinatura expirou. O sistema está operando em modo somente leitura.</strong>
                     <p className="text-xs text-rose-800 leading-relaxed max-w-2xl mt-0.5">
-                      Sua assinatura expirou em {currentSalon.expirationDate} ({Math.abs(daysRemaining)} {Math.abs(daysRemaining) === 1 ? 'dia' : 'dias'} atrás). O acesso a comandas, financeiro, relatórios e agendamentos foi restrito. Renove o plano para reativar o sistema completo.
+                      Expirou em {currentSalon.expirationDate} ({Math.abs(daysRemaining)} {Math.abs(daysRemaining) === 1 ? 'dia' : 'dias'} atrás). Renove para voltar a realizar alterações.
                     </p>
                   </div>
                 </div>
@@ -1576,7 +1660,7 @@ export default function App() {
                   className="w-full md:w-auto shrink-0 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
                 >
                   <CreditCard className="w-4 h-4 text-stone-100" />
-                  <span>Renovar Plano</span>
+                  <span>Renovar Assinatura</span>
                 </button>
               </div>
             );
@@ -1588,9 +1672,9 @@ export default function App() {
                 <div className="flex gap-3">
                   <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
                   <div>
-                    <strong className="block text-amber-950 font-extrabold text-sm">Assinatura Próxima do Vencimento — {daysRemaining} {daysRemaining === 1 ? 'dia' : 'dias'} Restantes</strong>
+                    <strong className="block text-amber-950 font-extrabold text-sm">Sua assinatura vence em {daysRemaining} {daysRemaining === 1 ? 'dia' : 'dias'}. Renove para evitar bloqueios.</strong>
                     <p className="text-xs text-amber-800 leading-relaxed max-w-2xl mt-0.5">
-                      Sua assinatura do plano Modello Enterprise vence em {currentSalon.expirationDate}. Renove agora para evitar a suspensão do sistema.
+                      Vencimento em {currentSalon.expirationDate}. Renove agora para manter o sistema ativo.
                     </p>
                   </div>
                 </div>
@@ -1599,7 +1683,7 @@ export default function App() {
                   className="w-full md:w-auto shrink-0 bg-zinc-900 hover:bg-black text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
                 >
                   <CreditCard className="w-4 h-4 text-stone-200" />
-                  <span>Renovar Plano</span>
+                  <span>Renovar Assinatura</span>
                 </button>
               </div>
             );
@@ -1706,6 +1790,7 @@ export default function App() {
             onUpdateStatus={handleUpdateComandaStatus}
             onDeleteComanda={handleDeleteComandaObj}
             currentSalon={currentSalon}
+            isReadOnly={isReadOnly}
           />
         )}
 
@@ -1721,6 +1806,7 @@ export default function App() {
             onConvertAppointmentToComanda={handleConvertAppToComandaObj}
             onDeleteAppointment={handleDeleteAppointmentObj}
             onUpdateClients={triggerUpdateClients}
+            isReadOnly={isReadOnly}
           />
         )}
 
@@ -1736,6 +1822,7 @@ export default function App() {
             onDeleteFinancialRecord={handleDeleteFinancialRecordObj}
             onSettleDebt={handleSettleDebtObj}
             onUpdateComandaObj={handleUpdateComandaObj}
+            isReadOnly={isReadOnly}
           />
         )}
 
@@ -1765,25 +1852,8 @@ export default function App() {
             onUpdateClients={triggerUpdateClients}
             onUpdateServiceCategories={triggerUpdateServiceCategories}
             onUpdateCardAcquirers={triggerUpdateCardAcquirers}
+            isReadOnly={isReadOnly}
           />
-        )}
-
-        {/* Fallback para tab bloqueada por expiração */}
-        {currentSalon && isTabBlocked(activeTab) && (
-          <div className="flex flex-col items-center justify-center py-16 text-center animate-fade-in">
-            <ShieldAlert className="w-12 h-12 text-rose-300 mb-4" />
-            <h3 className="text-lg font-extrabold text-rose-800 mb-1">Módulo Bloqueado</h3>
-            <p className="text-sm text-stone-500 max-w-md leading-relaxed">
-              Sua assinatura está vencida. Renove o plano para reativar o acesso a este módulo.
-            </p>
-            <button
-              onClick={handleLaunchStripeCheckout}
-              className="mt-5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-5 py-2.5 rounded-lg flex items-center gap-2 shadow-xs transition cursor-pointer"
-            >
-              <CreditCard className="w-4 h-4" />
-              <span>Renovar Plano</span>
-            </button>
-          </div>
         )}
 
         {activeTab === 'configuracoes' && (

@@ -993,6 +993,23 @@ export function recalculateAllCommissions(salonId: string): { successCount: numb
   });
 
   saveComandas(recalculatedComandas);
+
+  // Persiste cada comanda recalculada no Supabase via REST API (assíncrono, não bloqueia o retorno)
+  const changedComandas = recalculatedComandas.filter(c => c.salonId === salonId);
+  (async () => {
+    for (const com of changedComandas) {
+      try {
+        await fetch(`/api/comandas/${com.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(com)
+        });
+      } catch (err) {
+        console.warn("[Recalcular Comissões] Erro ao sincronizar comanda", com.id, err);
+      }
+    }
+  })();
+
   return { successCount: successCount - (comandas.length - comandaCountForSalon), comandaCount: comandaCountForSalon };
 }
 

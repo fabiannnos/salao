@@ -15,6 +15,7 @@ interface AgendamentosListProps {
   onConvertAppointmentToComanda: (app: Appointment) => void;
   onDeleteAppointment: (id: string) => void;
   onUpdateClients?: (list: Client[]) => void;
+  isReadOnly?: boolean;
 }
 
 export default function AgendamentosList({
@@ -27,8 +28,10 @@ export default function AgendamentosList({
   onUpdateAppointment,
   onConvertAppointmentToComanda,
   onDeleteAppointment,
-  onUpdateClients
+  onUpdateClients,
+  isReadOnly = false
 }: AgendamentosListProps) {
+  const TOOLTIP_READONLY = "Plano expirado. Renove para voltar a realizar alterações.";
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingAppt, setEditingAppt] = useState<Appointment | null>(null);
 
@@ -522,8 +525,9 @@ export default function AgendamentosList({
                     </div>
                     <button
                       type="button"
-                      onClick={handleCreateNewClient}
-                      className="w-full bg-black text-white py-2 rounded font-bold hover:bg-gold-800 transition text-[11px]"
+                      onClick={(e) => { if (isReadOnly) return; handleCreateNewClient(e); }}
+                      title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                      className={`w-full bg-black text-white py-2 rounded font-bold hover:bg-gold-800 transition text-[11px] ${isReadOnly ? 'opacity-50' : ''}`}
                     >
                       Cadastrar Cliente
                     </button>
@@ -576,11 +580,13 @@ export default function AgendamentosList({
                         ))}
                         <div
                           onClick={() => {
+                            if (isReadOnly) return;
                             setShowNewClientForm(true);
                             setNewClientName(clientSearchText);
                             setShowSearchResults(false);
                           }}
-                          className="p-2.5 font-sans text-xs text-blue-600 hover:bg-[#FCF9F2] cursor-pointer font-bold border-t border-stone-100 flex items-center gap-1.5"
+                          title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                          className={`p-2.5 font-sans text-xs text-blue-600 hover:bg-[#FCF9F2] cursor-pointer font-bold border-t border-stone-100 flex items-center gap-1.5 ${isReadOnly ? 'opacity-50' : ''}`}
                         >
                           <Plus className="w-3.5 h-3.5" />
                           <span>Não encontrou? Cadastrar novo cliente "{clientSearchText}"</span>
@@ -727,8 +733,9 @@ export default function AgendamentosList({
                 <div className="pt-1">
                   <button
                     type="button"
-                    onClick={handleAppendServiceChoice}
-                    className="w-full h-10 flex items-center justify-center gap-1.5 bg-black hover:bg-gold-500 text-white font-sans font-bold text-xs rounded-lg shadow-xs transition-all focus:outline-none cursor-pointer"
+                    onClick={() => { if (isReadOnly) return; handleAppendServiceChoice(); }}
+                    title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                    className={`w-full h-10 flex items-center justify-center gap-1.5 bg-black hover:bg-gold-500 text-white font-sans font-bold text-xs rounded-lg shadow-xs transition-all focus:outline-none cursor-pointer ${isReadOnly ? 'opacity-50' : ''}`}
                   >
                     <Plus className="w-4 h-4 text-gold-300" />
                     <span>Adicionar Serviço & Colaborador</span>
@@ -795,7 +802,9 @@ export default function AgendamentosList({
 
               <button
                 type="submit"
-                className="w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer text-xs uppercase scroll-py-2 hover:shadow"
+                disabled={isReadOnly}
+                title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                className={`w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition cursor-pointer text-xs uppercase scroll-py-2 hover:shadow ${isReadOnly ? 'opacity-50' : ''}`}
               >
                 {editingAppt ? "Salvar Alterações do Agendamento" : "Confirmar e agendar"}
               </button>
@@ -840,12 +849,14 @@ export default function AgendamentosList({
               <button
                 type="button"
                 onClick={() => {
+                  if (isReadOnly) return;
                   if (confirmDeleteId) {
                     onDeleteAppointment(confirmDeleteId);
                     setConfirmDeleteId(null);
                   }
                 }}
-                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white py-2 px-4 rounded-lg text-[11px] font-bold cursor-pointer transition"
+                title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                className={`flex-1 bg-rose-600 hover:bg-rose-700 text-white py-2 px-4 rounded-lg text-[11px] font-bold cursor-pointer transition ${isReadOnly ? 'opacity-50' : ''}`}
               >
                 Excluir Agendamento
               </button>

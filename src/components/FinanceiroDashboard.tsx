@@ -219,6 +219,7 @@ interface FinanceiroDashboardProps {
   onSettleDebt: (comandaId: string) => void; 
   onDeleteFinancialRecord: (id: string) => void;
   onUpdateComandaObj: (comanda: Comanda) => void;
+  isReadOnly?: boolean;
 }
 
 export default function FinanceiroDashboard({
@@ -231,8 +232,10 @@ export default function FinanceiroDashboard({
   onUpdateFinancialRecord,
   onSettleDebt,
   onDeleteFinancialRecord,
-  onUpdateComandaObj
+  onUpdateComandaObj,
+  isReadOnly = false
 }: FinanceiroDashboardProps) {
+  const TOOLTIP_READONLY = "Plano expirado. Renove para voltar a realizar alterações.";
   // Selected period
   const [selectedMonth, setSelectedMonth] = useState((new Date()).getMonth());
   const [selectedYear, setSelectedYear] = useState(2026);
@@ -1180,7 +1183,11 @@ export default function FinanceiroDashboard({
             </button>
             <button
               onClick={() => setShowAddForm(true)}
-              className="flex items-center gap-1 bg-black text-white px-4 py-1.5 rounded-full text-xs font-bold hover:bg-gold-800 transition cursor-pointer"
+              disabled={isReadOnly}
+              title={isReadOnly ? TOOLTIP_READONLY : undefined}
+              className={`flex items-center gap-1 px-4 py-1.5 rounded-full text-xs font-bold transition cursor-pointer ${
+                isReadOnly ? 'bg-stone-300 text-stone-500 cursor-not-allowed opacity-50' : 'bg-black text-white hover:bg-gold-800'
+              }`}
             >
               <Plus className="w-4 h-4" />
               <span>Lançamento manual</span>
@@ -1242,10 +1249,15 @@ export default function FinanceiroDashboard({
                             <td className="px-6 py-4 text-right">
                               <button
                                 onClick={() => {
+                                  if (isReadOnly) return;
                                   handleSettleAction(c.id, c.clientName);
                                   setAlertState({message: `Duplicata do cliente ${c.clientName} baixada com sucesso! Recebimento registrado.`, variant: 'success'});
                                 }}
-                                className="text-xs bg-green-50 hover:bg-green-100 text-green-700 font-extrabold px-3 py-1.5 rounded-lg border border-green-200 transition-all cursor-pointer"
+                                disabled={isReadOnly}
+                                title={isReadOnly ? TOOLTIP_READONLY : "Registrar recebimento desta duplicata"}
+                                className={`text-xs font-extrabold px-3 py-1.5 rounded-lg border transition-all ${
+                                  isReadOnly ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed opacity-50' : 'bg-green-50 hover:bg-green-100 text-green-700 border-green-200 cursor-pointer'
+                                }`}
                               >
                                 Dar Baixa
                               </button>
@@ -1444,8 +1456,11 @@ export default function FinanceiroDashboard({
                               <>
                                 <button
                                   onClick={() => handleSettleExpense(item)}
-                                  className="text-[10px] bg-green-50 text-green-700 font-bold border border-green-200 px-2.5 py-1 rounded hover:bg-green-150 transition"
-                                  title="Registrar pagamento desta conta"
+                                  disabled={isReadOnly}
+                                  title={isReadOnly ? TOOLTIP_READONLY : "Registrar pagamento desta conta"}
+                                  className={`text-[10px] font-bold border px-2.5 py-1 rounded transition ${
+                                    isReadOnly ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed opacity-50' : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-150'
+                                  }`}
                                 >
                                   Pagar Conta
                                 </button>
@@ -1466,19 +1481,25 @@ export default function FinanceiroDashboard({
 
                             <button
                               onClick={() => handleStartEdit(item)}
-                              className="p-1 text-stone-500 hover:text-black hover:bg-stone-50 border border-stone-200 rounded transition"
-                              title="Editar Lançamento"
+                              disabled={isReadOnly}
+                              title={isReadOnly ? TOOLTIP_READONLY : "Editar Lançamento"}
+                              className={`p-1 rounded transition border ${
+                                isReadOnly ? 'text-stone-300 border-stone-200 cursor-not-allowed opacity-50' : 'text-stone-500 hover:text-black hover:bg-stone-50 border-stone-200'
+                              }`}
                             >
                               <Edit2 className="w-3 h-3" />
                             </button>
                             <button
                               onClick={() => handleDeleteRecord(item.id)}
+                              disabled={isReadOnly}
+                              title={isReadOnly ? TOOLTIP_READONLY : (finDeleteConfirmId === item.id ? "Clique novamente para confirmar exclusão" : "Excluir Lançamento")}
                               className={`p-1 rounded transition border text-[9px] font-black flex items-center ${
-                                finDeleteConfirmId === item.id 
-                                  ? 'bg-rose-600 text-white border-rose-600 px-1.5 animate-pulse' 
-                                  : 'text-rose-500 hover:text-rose-700 hover:bg-rose-50 border-rose-100'
+                                isReadOnly
+                                  ? 'text-stone-300 border-stone-200 cursor-not-allowed opacity-50'
+                                  : finDeleteConfirmId === item.id 
+                                    ? 'bg-rose-600 text-white border-rose-600 px-1.5 animate-pulse' 
+                                    : 'text-rose-500 hover:text-rose-700 hover:bg-rose-50 border-rose-100'
                               }`}
-                              title={finDeleteConfirmId === item.id ? "Clique novamente para confirmar exclusão" : "Excluir Lançamento"}
                             >
                               {finDeleteConfirmId === item.id ? (
                                 <span>Confirmar?</span>
@@ -1630,12 +1651,16 @@ export default function FinanceiroDashboard({
                                 <>
                                   <button
                                     onClick={() => {
+                                      if (isReadOnly) return;
                                       setSettlingItem(item);
                                       setIndividualPaymentMethod('');
                                       setIndividualPaymentDate(new Date().toISOString().split('T')[0]);
                                     }}
-                                    className="text-[10px] bg-emerald-50 text-emerald-700 font-bold border border-emerald-200 px-2.5 py-1 rounded hover:bg-emerald-100 transition whitespace-nowrap"
-                                    title="Baixar recebimento desta duplicata"
+                                    disabled={isReadOnly}
+                                    title={isReadOnly ? TOOLTIP_READONLY : "Baixar recebimento desta duplicata"}
+                                    className={`text-[10px] font-bold border px-2.5 py-1 rounded transition whitespace-nowrap ${
+                                      isReadOnly ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                    }`}
                                   >
                                     Receber Valor
                                   </button>
@@ -1655,19 +1680,25 @@ export default function FinanceiroDashboard({
 
                               <button
                                 onClick={() => handleStartEdit(item)}
-                                className="p-1 text-stone-500 hover:text-black hover:bg-stone-50 border border-stone-200 rounded transition"
-                                title="Editar Lançamento"
+                                disabled={isReadOnly}
+                                title={isReadOnly ? TOOLTIP_READONLY : "Editar Lançamento"}
+                                className={`p-1 rounded transition border ${
+                                  isReadOnly ? 'text-stone-300 border-stone-200 cursor-not-allowed opacity-50' : 'text-stone-500 hover:text-black hover:bg-stone-50 border-stone-200'
+                                }`}
                               >
                                 <Edit2 className="w-3 h-3" />
                               </button>
                               <button
                                 onClick={() => handleDeleteRecord(item.id)}
+                                disabled={isReadOnly}
+                                title={isReadOnly ? TOOLTIP_READONLY : (finDeleteConfirmId === item.id ? "Clique novamente para confirmar exclusão" : "Excluir Lançamento")}
                                 className={`p-1 rounded transition border text-[9px] font-black flex items-center ${
-                                  finDeleteConfirmId === item.id 
-                                    ? 'bg-rose-600 text-white border-rose-600 px-1.5 animate-pulse' 
-                                    : 'text-rose-500 hover:text-rose-700 hover:bg-rose-50 border-rose-100'
+                                  isReadOnly
+                                    ? 'text-stone-300 border-stone-200 cursor-not-allowed opacity-50'
+                                    : finDeleteConfirmId === item.id 
+                                      ? 'bg-rose-600 text-white border-rose-600 px-1.5 animate-pulse' 
+                                      : 'text-rose-500 hover:text-rose-700 hover:bg-rose-50 border-rose-100'
                                 }`}
-                                title={finDeleteConfirmId === item.id ? "Clique novamente para confirmar exclusão" : "Excluir Lançamento"}
                               >
                                 {finDeleteConfirmId === item.id ? (
                                   <span>Confirmar?</span>
@@ -1770,7 +1801,11 @@ export default function FinanceiroDashboard({
 
                     <button
                       onClick={() => handleMassSettle(massActionPaymentMethod)}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-serif font-black tracking-widest py-3 px-4 rounded-xl transition-all cursor-pointer text-xs uppercase shadow-md active:scale-98"
+                      disabled={isReadOnly}
+                      title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                      className={`w-full font-serif font-black tracking-widest py-3 px-4 rounded-xl transition-all text-xs uppercase shadow-md ${
+                        isReadOnly ? 'bg-stone-300 text-stone-500 cursor-not-allowed opacity-50' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-98'
+                      }`}
                     >
                       Processar Baixa Coletiva
                     </button>
@@ -1891,7 +1926,11 @@ export default function FinanceiroDashboard({
                         setAlertState({message: `Baixa individual de recebimento concluída com sucesso!`, variant: 'success'});
                         setSettlingItem(null);
                       }}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-serif font-black tracking-widest py-3 px-4 rounded-xl transition-all cursor-pointer text-xs uppercase shadow-md active:scale-98 mt-2"
+                      disabled={isReadOnly}
+                      title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                      className={`w-full font-serif font-black tracking-widest py-3 px-4 rounded-xl transition-all text-xs uppercase shadow-md mt-2 ${
+                        isReadOnly ? 'bg-stone-300 text-stone-500 cursor-not-allowed opacity-50' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-98'
+                      }`}
                     >
                       Confirmar Recebimento Individual
                     </button>
@@ -2091,7 +2130,11 @@ export default function FinanceiroDashboard({
                   {tickedSumUnpaid > 0 ? (
                     <button
                       onClick={handlePagarSelecionados}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3 py-1.5 rounded-full text-[10px] uppercase shadow-xs cursor-pointer transition"
+                      disabled={isReadOnly}
+                      title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                      className={`font-extrabold px-3 py-1.5 rounded-full text-[10px] uppercase shadow-xs transition ${
+                        isReadOnly ? 'bg-stone-300 text-stone-500 cursor-not-allowed opacity-50' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
+                      }`}
                     >
                       Pagar Selecionados
                     </button>
@@ -2476,7 +2519,11 @@ export default function FinanceiroDashboard({
 
               <button
                 type="submit"
-                className="w-full bg-black hover:bg-[#e5b35f] text-white hover:text-black font-bold py-3.5 px-4 rounded-full transition-all cursor-pointer"
+                disabled={isReadOnly}
+                title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                className={`w-full font-bold py-3.5 px-4 rounded-full transition-all ${
+                  isReadOnly ? 'bg-stone-300 text-stone-500 cursor-not-allowed opacity-50' : 'bg-black hover:bg-[#e5b35f] text-white hover:text-black cursor-pointer'
+                }`}
               >
                 {editingRecord ? 'Salvar Lançamento' : 'Confirmar Lançamento Financeiro'}
               </button>
