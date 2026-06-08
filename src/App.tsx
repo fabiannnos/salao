@@ -989,6 +989,7 @@ export default function App() {
   };
 
   const handleAddAppointmentObj = async (newApp: Appointment) => {
+    if (isMutationBlocked("Criar Agendamento")) return;
     try {
       const response = await fetch("/api/appointments", {
         method: "POST",
@@ -1009,6 +1010,7 @@ export default function App() {
   };
 
   const handleUpdateAppointmentObj = async (updatedApp: Appointment) => {
+    if (isMutationBlocked("Atualizar Agendamento")) return;
     try {
       const response = await fetch(`/api/appointments/${updatedApp.id}`, {
         method: "PUT",
