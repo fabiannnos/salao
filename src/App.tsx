@@ -42,6 +42,7 @@ import ColecoesCrud from './components/ColecoesCrud';
 import ConfiguracoesTenancy from './components/ConfiguracoesTenancy';
 import GestaoModelloLogo from './components/GestaoModelloLogo';
 import SaaSManagerDashboard from './components/SaaSManagerDashboard';
+import PwaInstallBanner from './components/PwaInstallBanner';
 
 export default function App() {
   // Authentication & Tenancy context states
@@ -1951,6 +1952,8 @@ export default function App() {
         )}
 
       </main>
+
+      <PwaInstallBanner />
 
       <AlertModal
         open={!!alertState}

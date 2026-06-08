@@ -1332,8 +1332,32 @@ async function setupViteOrStatic() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+
+    // Cache-control: SW nunca deve ser cacheado pelo navegador
+    app.use((req, res, next) => {
+      if (req.path === "/service-worker.js") {
+        res.setHeader("Cache-Control", "no-store, max-age=0");
+      } else if (req.path === "/manifest.webmanifest") {
+        res.setHeader("Cache-Control", "public, max-age=300");
+      } else if (req.path === "/" || req.path === "/index.html") {
+        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      }
+      next();
+    });
+
+    app.use(express.static(distPath, {
+      setHeaders(res, filePath) {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        }
+        if (filePath.endsWith("service-worker.js")) {
+          res.setHeader("Cache-Control", "no-store, max-age=0");
+        }
+      }
+    }));
+
     app.get("*", (req, res) => {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
