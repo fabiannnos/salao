@@ -104,8 +104,8 @@ export default function PwaInstallBanner() {
           <span className="text-lg shrink-0">📱</span>
           <p className="text-xs leading-relaxed text-stone-300">
             {isIOS
-              ? "Instale o Gestão Modello: toque em Compartilhar e depois em Adicionar à Tela de Início."
-              : "Instale o Gestão Modello — acesse mais rápido como aplicativo."}
+              ? "Instale o Gestão Modelo: toque em Compartilhar e depois em Adicionar à Tela de Início."
+              : "Instale o Gestão Modelo — acesse mais rápido como aplicativo."}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
