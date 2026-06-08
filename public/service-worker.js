@@ -1,7 +1,6 @@
-const CACHE = "helpit-v1.0.1";
+const CACHE = "helpit-v1.0.2";
 const ASSETS = [
   "/",
-  "/index.html",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -9,9 +8,16 @@ const ASSETS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ASSETS))
+    caches.open(CACHE).then((cache) =>
+      Promise.allSettled(
+        ASSETS.map((url) =>
+          fetch(url)
+            .then((res) => { if (res.ok) cache.put(url, res); })
+            .catch(() => {})
+        )
+      )
+    ).then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
 self.addEventListener("message", (event) => {
