@@ -12,98 +12,82 @@
     <meta name="theme-color" content="#000000" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  </head>
-  <body>
     <script>
       (function() {
-        try {
-          if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) return;
+        'use strict';
 
-          var ua = navigator.userAgent;
-          var isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-          if (!isMobile) return;
+        /* Regra A: já instalado como PWA? → nunca mostrar */
+        if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) return;
 
-          try { if (sessionStorage.getItem('helpit_pwa_banner_hidden') === '1') return; } catch(e) {}
+        /* Apenas mobile */
+        var ua = navigator.userAgent;
+        if (!/Mobi|Android|iPhone|iPad|iPod/i.test(ua) && !(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return;
 
-          var isIOS = /iPad|iPhone|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        var banner = null;
+        var deferredPrompt = null;
 
-          var banner = document.createElement('div');
-          banner.id = 'pwa-top-banner';
-          banner.style.cssText = 'position:sticky;top:0;left:0;right:0;z-index:2147483647;background:#000;color:#fff;padding:10px 16px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:12px;';
+        function criarBanner() {
+          if (banner) return;
+          banner = document.createElement('div');
+          banner.id = 'pwa-banner';
+          Object.assign(banner.style, {
+            position:'sticky', top:'0', left:'0', right:'0', zIndex:'999999',
+            background:'#000', color:'#fff', padding:'10px 16px',
+            fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif', fontSize:'13px',
+            display:'none', alignItems:'center', justifyContent:'center', gap:'12px'
+          });
 
-          var textSpan = document.createElement('span');
-          textSpan.style.cssText = 'flex:1;min-width:0;line-height:1.4;';
-          textSpan.textContent = isIOS
-            ? '📱 Instale o Gestão Modello: toque em Compartilhar e depois em Adicionar à Tela de Início.'
-            : '📱 Instale o Gestão Modello — acesse mais rápido como aplicativo.';
+          var texto = document.createElement('span');
+          Object.assign(texto.style, { textAlign:'center', lineHeight:'1.4' });
+          texto.textContent = '📱 Instale o Gestão Modello para acessar mais rápido.';
 
-          var actionsDiv = document.createElement('div');
-          actionsDiv.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0;';
+          var btnInstalar = document.createElement('button');
+          Object.assign(btnInstalar.style, {
+            background:'#f59e0b', color:'#000', border:'none', padding:'6px 14px',
+            borderRadius:'8px', fontSize:'12px', fontWeight:'700', cursor:'pointer',
+            whiteSpace:'nowrap'
+          });
+          btnInstalar.textContent = 'Instalar';
+          btnInstalar.onclick = function() {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then(function(r) {
+              if (r.outcome === 'accepted') banner.style.display = 'none';
+            });
+          };
 
-          var dismissBtn = document.createElement('button');
-          dismissBtn.textContent = isIOS ? 'Entendi' : 'Depois';
-          dismissBtn.style.cssText = 'background:#1f2937;color:#d1d5db;border:none;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;';
-          dismissBtn.onclick = function() {
-            try { sessionStorage.setItem('helpit_pwa_banner_hidden', '1'); } catch(e) {}
+          var btnDepois = document.createElement('button');
+          Object.assign(btnDepois.style, {
+            background:'transparent', color:'#999', border:'1px solid #333',
+            padding:'6px 14px', borderRadius:'8px', fontSize:'12px',
+            fontWeight:'600', cursor:'pointer', whiteSpace:'nowrap'
+          });
+          btnDepois.textContent = 'Depois';
+          btnDepois.onclick = function() {
+            try { sessionStorage.setItem('pwa_dismissed', '1'); } catch(e) {}
             banner.style.display = 'none';
           };
-          actionsDiv.appendChild(dismissBtn);
 
-          if (!isIOS) {
-            (function() {
-              var deferredPrompt = null;
-              window.addEventListener('beforeinstallprompt', function(e) {
-                e.preventDefault();
-                deferredPrompt = e;
-              });
-
-              var installBtn = document.createElement('button');
-              installBtn.textContent = 'Instalar Agora';
-              installBtn.style.cssText = 'background:#f59e0b;color:#000;border:none;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;';
-              installBtn.onclick = function() {
-                if (deferredPrompt) {
-                  deferredPrompt.prompt();
-                  deferredPrompt.userChoice.then(function(result) {
-                    if (result.outcome === 'accepted') banner.style.display = 'none';
-                    deferredPrompt = null;
-                  });
-                } else {
-                  installBtn.textContent = 'Aguarde...';
-                  installBtn.disabled = true;
-                  installBtn.style.opacity = '0.6';
-                  var waitTimer = setTimeout(function() {
-                    installBtn.style.display = 'none';
-                    dismissBtn.textContent = 'Entendi';
-                    textSpan.innerHTML = '📱 Abra o menu do navegador <b>⋮</b> e selecione <b>"Adicionar à tela inicial"</b> ou <b>"Instalar aplicativo"</b>.';
-                  }, 5000);
-                  var checkInterval = setInterval(function() {
-                    if (deferredPrompt) {
-                      clearTimeout(waitTimer);
-                      clearInterval(checkInterval);
-                      installBtn.textContent = 'Instalar Agora';
-                      installBtn.disabled = false;
-                      installBtn.style.opacity = '1';
-                      deferredPrompt.prompt();
-                      deferredPrompt.userChoice.then(function(result) {
-                        if (result.outcome === 'accepted') banner.style.display = 'none';
-                        deferredPrompt = null;
-                      });
-                    }
-                  }, 200);
-                }
-              };
-              actionsDiv.appendChild(installBtn);
-            })();
-          }
-
-          banner.appendChild(textSpan);
-          banner.appendChild(actionsDiv);
+          banner.appendChild(texto);
+          banner.appendChild(btnInstalar);
+          banner.appendChild(btnDepois);
           document.body.insertBefore(banner, document.body.firstChild);
-        } catch(e) {
-          console.error('[PWA]', e);
         }
+
+        /* Regra B: beforeinstallprompt → exibir banner */
+        window.addEventListener('beforeinstallprompt', function(e) {
+          e.preventDefault();
+          deferredPrompt = e;
+
+          try { if (sessionStorage.getItem('pwa_dismissed') === '1') return; } catch(e) {}
+
+          criarBanner();
+          banner.style.display = 'flex';
+        });
       })();
     </script>
+  </head>
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
