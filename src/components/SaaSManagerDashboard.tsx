@@ -99,6 +99,7 @@ export default function SaaSManagerDashboard({
   const [deleteConfirmPassword, setDeleteConfirmPassword] = useState('');
   const [deleteErrorMsg, setDeleteErrorMsg] = useState<string | null>(null);
   const [deletingInProgress, setDeletingInProgress] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Selected company for detailed administrator management
   const [selectedSalonId, setSelectedSalonId] = useState<string | null>(() => {
@@ -237,16 +238,19 @@ export default function SaaSManagerDashboard({
   };
 
   // Create or Update Salon handler
-  const handleSaveSalon = (e: React.FormEvent) => {
+  const handleSaveSalon = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName || !formCNPJ) {
       setAlertState({message: "Por favor, preencha a Razão Social e o CNPJ da sandbox.", variant: 'error'});
       return;
     }
 
-    if (editingSalonId) {
-      // Edit existing Salon
-      const updated: Salon = {
+    // Desabilita o botão pra evitar duplo clique
+    setIsSaving(true);
+
+    try {
+      if (editingSalonId) {
+        const updated: Salon = {
         id: editingSalonId,
         name: formName,
         cnpj: formCNPJ,
@@ -268,6 +272,28 @@ export default function SaaSManagerDashboard({
         planValue: parseFloat(formPlanValue) || 120
       };
       
+      // 1. PERSISTE NO SUPABASE PRIMEIRO (antes de qualquer estado local ou auto-sync)
+      try {
+        const billingResp = await fetch("/api/update-tenant-billing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: editingSalonId,
+            expirationDate: formExpiration,
+            planValue: parseFloat(formPlanValue) || 120,
+            isActive: formIsActive,
+          })
+        });
+        const billingData = await billingResp.json();
+        if (!billingData.success) {
+          console.error("[SaveSalon] Erro no billing endpoint:", billingData.error);
+        }
+      } catch (err) {
+        console.error("[SaveSalon] Erro de rede ao persistir no Supabase:", err);
+      }
+
+      // 2. SÓ DEPOIS atualiza estado local + dispara auto-sync
+      //    (o auto-sync agora vai ler do Supabase que já tem os valores atualizados)
       onUpdateSalon(updated);
       setAlertState({message: `Licença e dados da sandbox "${formName}" atualizados com sucesso !`, variant: 'success'});
       setSaasTab('overview');
@@ -278,6 +304,7 @@ export default function SaaSManagerDashboard({
       const cnpjClean = formCNPJ.replace(/\D/g, '');
       if (salons.some(s => s.cnpj.replace(/\D/g, '') === cnpjClean)) {
         setAlertState({message: "Já existe uma sandbox configurada com este CNPJ.", variant: 'error'});
+        setIsSaving(false);
         return;
       }
 
@@ -325,6 +352,9 @@ export default function SaaSManagerDashboard({
       triggerUpdateAllProfessionals([...allProfessionals, defaultAdmin]);
       setSaasTab('overview');
       clearForm();
+      }
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -1518,9 +1548,10 @@ _Nota: Guarde seus dados em local seguro e confidencial. Suporte SaaS Modello._`
 
               <button
                 type="submit"
-                className="w-full bg-stone-950 hover:bg-[#a0854c] text-white font-serif font-black uppercase tracking-widest py-3.5 rounded-full shadow-md transition-all active:scale-95 cursor-pointer text-xs"
+                disabled={isSaving}
+                className="w-full bg-stone-950 hover:bg-[#a0854c] text-white font-serif font-black uppercase tracking-widest py-3.5 rounded-full shadow-md transition-all active:scale-95 cursor-pointer text-xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {editingSalonId ? '💾 Salvar Alterações na Licença' : '🚀 Criar Sandbox e Liberar Licença Mestre'}
+                {isSaving ? '⏳ Salvando...' : (editingSalonId ? '💾 Salvar Alterações na Licença' : '🚀 Criar Sandbox e Liberar Licença Mestre')}
               </button>
             </form>
           </div>
