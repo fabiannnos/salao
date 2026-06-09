@@ -797,7 +797,7 @@ app.post("/api/update-tenant-billing", express.json(), async (req, res) => {
     if (expirationDate !== undefined) updateFields.expiration_date = expirationDate;
     if (planValue !== undefined) updateFields.plan_value = planValue;
     if (isActive !== undefined) updateFields.is_active = isActive;
-    if (cardFeePercentProfDeduct !== undefined) updateFields.card_fee_percent_prof_deduct = cardFeePercentProfDeduct;
+    if (cardFeePercentProfDeduct != null) updateFields.card_fee_percent_prof_deduct = cardFeePercentProfDeduct;
 
     if (Object.keys(updateFields).length === 0) {
       return res.status(400).json({ success: false, error: "Nenhum campo para atualizar" });

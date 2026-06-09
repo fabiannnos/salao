@@ -1064,6 +1064,7 @@ export default function App() {
     //    (auto-sync NÃO sobrescreve billing fields no Supabase, então precisamos
     //     garantir que o banco já tenha os novos valores ANTES do sync)
     try {
+      const existingSalonForBilling = salons.find(s => s.id === updatedSalon.id);
       const billingResp = await fetch("/api/update-tenant-billing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1072,7 +1073,7 @@ export default function App() {
           expirationDate: updatedSalon.expirationDate,
           planValue: updatedSalon.planValue,
           isActive: updatedSalon.isActive,
-          cardFeePercentProfDeduct: updatedSalon.cardFeePercentProfDeduct,
+          cardFeePercentProfDeduct: updatedSalon.cardFeePercentProfDeduct ?? existingSalonForBilling?.cardFeePercentProfDeduct,
         })
       });
       const billingData = await billingResp.json();

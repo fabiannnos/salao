@@ -250,6 +250,7 @@ export default function SaaSManagerDashboard({
 
     try {
       if (editingSalonId) {
+        const existingSalon = salons.find(s => s.id === editingSalonId);
         const updated: Salon = {
         id: editingSalonId,
         name: formName,
@@ -269,7 +270,8 @@ export default function SaaSManagerDashboard({
         expirationDate: formExpiration,
         isActive: formIsActive,
         logoUrl: formLogoUrl,
-        planValue: parseFloat(formPlanValue) || 120
+        planValue: parseFloat(formPlanValue) || 120,
+        cardFeePercentProfDeduct: existingSalon?.cardFeePercentProfDeduct ?? 0
       };
       
       // 1. PERSISTE NO SUPABASE PRIMEIRO (antes de qualquer estado local ou auto-sync)
