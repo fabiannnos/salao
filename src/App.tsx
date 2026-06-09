@@ -397,7 +397,7 @@ export default function App() {
       .replace(/[^a-z0-9]/g, "");
 
     try {
-      const pixRes = await fetch("/api/asaas/create-pix", {
+      const pixRes = await fetch("/api/checkout/create-pix", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ salonId: currentSalon.id }),
@@ -417,15 +417,15 @@ export default function App() {
 
       if (pixDataRaw.error) {
         if (pixDataRaw.isMock) {
-          console.log("[PIX] Asaas não configurado, usando fallback Stripe.");
+          console.log("[PIX] Mercado Pago não configurado, usando fallback Stripe.");
         } else {
-          setAlertState({ message: `Asaas: ${pixDataRaw.error}`, variant: "error" });
+          setAlertState({ message: `Mercado Pago: ${pixDataRaw.error}`, variant: "error" });
           setIsProcessingPayment(false);
           return;
         }
       }
     } catch (err: any) {
-      console.warn("[PIX] Erro ao chamar Asaas, usando fallback Stripe:", err?.message);
+      console.warn("[PIX] Erro ao chamar Mercado Pago, usando fallback Stripe:", err?.message);
     }
 
     try {

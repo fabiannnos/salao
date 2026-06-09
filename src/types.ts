@@ -4,7 +4,6 @@ export interface Salon {
   cnpj: string;
   phone: string;
   email?: string;
-  asaasCustomerId?: string;
   password?: string;
   city: string;
   address?: string;

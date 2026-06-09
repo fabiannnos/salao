@@ -51,9 +51,9 @@ export default function ModalPagamentoPix({
 
     intervalRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`/api/asaas/payment-status/${pixData.paymentId}`);
+        const res = await fetch(`/api/checkout/payment-status/${pixData.paymentId}`);
         const data = await res.json();
-        if (data.success && (data.status === "CONFIRMED" || data.status === "RECEIVED")) {
+        if (data.success && (data.status === "approved")) {
           stopPolling();
           setStep("confirmed");
         }

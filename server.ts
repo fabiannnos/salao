@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import Stripe from "stripe";
+import { MercadoPagoConfig, Payment } from "mercadopago";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import { tenantAccessGuard, invalidateTenantCache } from "./middleware/tenantAccessGuard";
@@ -57,7 +58,7 @@ app.get("/api/health", (req, res) => {
     status: "ok",
     environment: process.env.NODE_ENV || "development",
     hasStripeKey: !!process.env.STRIPE_SECRET_KEY,
-    hasAsaasKey: !!process.env.ASAAS_API_KEY,
+    hasMercadoPagoKey: !!process.env.MERCADO_PAGO_ACCESS_TOKEN,
     hasSupabaseKey: !!process.env.SUPABASE_URL,
     stripeProductId: process.env.STRIPE_PRODUCT_ID || "prod_gestao_modello_mensal"
   });
@@ -150,26 +151,13 @@ app.post("/api/tenant-pix-config", express.json(), async (req, res) => {
 });
 
 // =========================================================================
-// Asaas — PIX QR Code para renovação de assinatura
+// Mercado Pago — PIX QR Code via Checkout Transparente
 // =========================================================================
 
-function getAsaasHeaders() {
-  const key = process.env.ASAAS_API_KEY;
-  if (!key) return null;
-  return {
-    "access_token": key,
-    "Content-Type": "application/json",
-  };
-}
-
-function getAsaasApiUrl() {
-  return process.env.ASAAS_SANDBOX === "true"
-    ? "https://api-sandbox.asaas.com/v3"
-    : "https://api.asaas.com/v3";
-}
-
-function getAsaasEnvName(): string {
-  return process.env.ASAAS_SANDBOX === "true" ? "SANDBOX" : "PRODUÇÃO";
+function getMercadoPagoClient(): MercadoPagoConfig | null {
+  const token = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+  if (!token) return null;
+  return new MercadoPagoConfig({ accessToken: token });
 }
 
 function sanitizeCpfCnpj(raw: string): string {
@@ -178,81 +166,6 @@ function sanitizeCpfCnpj(raw: string): string {
 
 function sanitizePhone(raw: string): string {
   return raw.replace(/\D/g, "");
-}
-
-async function getOrCreateAsaasCustomer(salon: {
-  id: string;
-  name: string;
-  cnpj: string;
-  phone: string;
-  email?: string;
-  asaasCustomerId?: string;
-}): Promise<string | null> {
-  if (salon.asaasCustomerId) {
-    console.log(`[Asaas Customer] Salão ${salon.id} já possui asaas_customer_id=${salon.asaasCustomerId}, reutilizando.`);
-    return salon.asaasCustomerId;
-  }
-
-  const headers = getAsaasHeaders();
-  if (!headers) {
-    console.warn("[Asaas Customer] ASAAS_API_KEY não configurada. Não foi possível criar customer.");
-    return null;
-  }
-
-  const apiUrl = getAsaasApiUrl();
-  const cleanCnpj = sanitizeCpfCnpj(salon.cnpj);
-  const cleanPhone = sanitizePhone(salon.phone);
-
-  console.log(`[Asaas Customer] Criando customer no Asaas para salão ${salon.id}...`, {
-    name: salon.name,
-    email: salon.email || `financeiro@${salon.id}.com.br`,
-    cpfCnpj: cleanCnpj || "não informado",
-    phone: cleanPhone || "não informado",
-    apiUrl,
-  });
-
-  try {
-    const res = await fetch(`${apiUrl}/customers`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        name: salon.name,
-        email: salon.email || `financeiro@${salon.id}.com.br`,
-        cpfCnpj: cleanCnpj || undefined,
-        phone: cleanPhone || undefined,
-        externalReference: salon.id,
-      }),
-    });
-
-    const customer = await res.json();
-    console.log(`[Asaas Customer] Resposta da API (status ${res.status}):`, JSON.stringify(customer, null, 2));
-
-    if (customer.id) {
-      const supabase = getSupabase();
-      const { error: updateErr } = await supabase
-        .from("tenants")
-        .update({ asaas_customer_id: customer.id })
-        .eq("id", salon.id);
-
-      if (updateErr) {
-        console.error(`[Asaas Customer] Erro ao salvar asaas_customer_id no Supabase:`, updateErr);
-      } else {
-        console.log(`[Asaas Customer] Customer criado com sucesso! ID=${customer.id} salvo no Supabase.`);
-      }
-      return customer.id;
-    }
-
-    console.error(`[Asaas Customer] Erro ao criar customer (status ${res.status}):`, customer.errors || customer);
-    const errMsg = customer.errors?.[0]?.description
-      || customer.errors?.[0]?.message
-      || `Erro HTTP ${res.status} ao criar customer no Asaas`;
-    const envHint = ` (ambiente configurado: ${getAsaasEnvName()}, URL: ${getAsaasApiUrl()})`;
-    throw new Error(`Asaas: ${errMsg}${envHint}`);
-  } catch (err) {
-    if (err instanceof Error && err.message.startsWith("Asaas:")) throw err;
-    console.error(`[Asaas Customer] Exceção ao chamar API Asaas:`, err);
-    throw new Error(`Asaas: erro de conexão com API - ${err instanceof Error ? err.message : String(err)}`);
-  }
 }
 
 function calculateNewExpiration(expirationDate: string | null): string {
@@ -287,7 +200,7 @@ async function updateTenantExpiration(salonId: string): Promise<string | null> {
     .eq("id", salonId);
 
   if (error) {
-    console.error("[Asaas] Erro ao atualizar expiração:", error);
+    console.error("[Mercado Pago] Erro ao atualizar expiração:", error);
     return null;
   }
 
@@ -298,12 +211,12 @@ async function updateTenantExpiration(salonId: string): Promise<string | null> {
 // Rate-limit map: salonId → timestamp da última requisição
 const createPixRequestTimestamps = new Map<string, number>();
 
-app.post("/api/asaas/create-pix", express.json(), async (req, res) => {
+app.post("/api/checkout/create-pix", express.json(), async (req, res) => {
   const { salonId } = req.body || {};
-  console.log(`[Asaas PIX] Requisição recebida para salonId=${salonId}`);
+  console.log(`[Mercado Pago PIX] Requisição recebida para salonId=${salonId}`);
 
   if (!salonId) {
-    console.warn("[Asaas PIX] salonId não informado.");
+    console.warn("[Mercado Pago PIX] salonId não informado.");
     return res.status(400).json({ success: false, error: "salonId é obrigatório" });
   }
 
@@ -311,198 +224,178 @@ app.post("/api/asaas/create-pix", express.json(), async (req, res) => {
   const now = Date.now();
   const lastRequest = createPixRequestTimestamps.get(salonId);
   if (lastRequest && (now - lastRequest) < 10000) {
-    console.warn(`[Asaas PIX] Requisição duplicada para salonId=${salonId} ignorada (${now - lastRequest}ms desde a última).`);
+    console.warn(`[Mercado Pago PIX] Requisição duplicada para salonId=${salonId} ignorada (${now - lastRequest}ms desde a última).`);
     return res.status(429).json({ success: false, error: "Já existe uma cobrança PIX sendo processada para este salão. Aguarde alguns segundos e tente novamente." });
   }
   createPixRequestTimestamps.set(salonId, now);
-  // Limpeza periódica para evitar vazamento de memória
   setTimeout(() => createPixRequestTimestamps.delete(salonId), 10000);
 
-  const headers = getAsaasHeaders();
-  if (!headers) {
-    console.warn("[Asaas PIX] ASAAS_API_KEY não configurada. Retornando modo simulação.");
-    return res.status(400).json({ success: false, isMock: true, error: "Asaas não configurado. Use o modo simulação." });
+  const mpClient = getMercadoPagoClient();
+  if (!mpClient) {
+    console.warn("[Mercado Pago PIX] MERCADO_PAGO_ACCESS_TOKEN não configurado.");
+    return res.status(400).json({ success: false, isMock: true, error: "Mercado Pago não configurado." });
   }
-
-  console.log(`[Asaas PIX] ASAAS_API_KEY presente, apiUrl=${getAsaasApiUrl()}`);
 
   try {
     // 1. Fetch salon data from DB
-    console.log(`[Asaas PIX] Buscando dados do salão ${salonId} no Supabase...`);
-    let       salonData: { name: string; cnpj: string; phone: string; email?: string; asaas_customer_id?: string; plan_value?: number } | null = null;
+    console.log(`[Mercado Pago PIX] Buscando dados do salão ${salonId} no Supabase...`);
+    let salonData: { name: string; email?: string; plan_value?: number } | null = null;
     const hasSupabase = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (hasSupabase) {
       const supabase = getSupabase();
       const { data, error: fetchErr } = await supabase
         .from("tenants")
-        .select("name, cnpj, phone, email, asaas_customer_id, plan_value")
+        .select("name, email, plan_value")
         .eq("id", salonId)
         .single();
       if (fetchErr) {
-        console.error(`[Asaas PIX] Erro ao buscar salão:`, fetchErr);
+        console.error(`[Mercado Pago PIX] Erro ao buscar salão:`, fetchErr);
       }
       if (data) {
         salonData = data;
-        console.log(`[Asaas PIX] Dados do salão encontrados:`, { name: data.name, email: data.email, hasCustomerId: !!data.asaas_customer_id });
+        console.log(`[Mercado Pago PIX] Dados do salão encontrados:`, { name: data.name, email: data.email });
       }
     } else {
-      console.warn("[Asaas PIX] Supabase não configurado.");
+      console.warn("[Mercado Pago PIX] Supabase não configurado.");
     }
 
     if (!salonData) {
-      console.error(`[Asaas PIX] Salão ${salonId} não encontrado no banco.`);
+      console.error(`[Mercado Pago PIX] Salão ${salonId} não encontrado no banco.`);
       return res.status(400).json({ success: false, error: "Salão não encontrado no banco de dados." });
     }
 
-    // 2. Get or create Asaas customer with sanitized data
-    console.log(`[Asaas PIX] Chamando getOrCreateAsaasCustomer para ${salonId}...`);
-    const customerId = await getOrCreateAsaasCustomer({
-      id: salonId,
-      name: salonData.name,
-      cnpj: salonData.cnpj || "",
-      phone: salonData.phone || "",
-      email: salonData.email || undefined,
-      asaasCustomerId: salonData.asaas_customer_id || undefined,
-    });
-    console.log(`[Asaas PIX] customerId obtido: ${customerId}`);
-
-    // 3. Create PIX payment with dynamic plan value
+    // 2. Create PIX payment via Mercado Pago
     const planValue = salonData.plan_value !== undefined ? salonData.plan_value : 120.00;
-    const apiUrl = getAsaasApiUrl();
-    const today = new Date().toISOString().substring(0, 10);
-    console.log(`[Asaas PIX] Criando cobrança PIX para customer=${customerId}, valor=R$${planValue.toFixed(2)}, dueDate=${today}, planValue=${planValue}...`);
-    const paymentRes = await fetch(`${apiUrl}/payments`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        customer: customerId,
-        billingType: "PIX",
-        value: planValue,
-        dueDate: today,
+    const payerEmail = salonData.email || `financeiro@${salonId}.com.br`;
+
+    console.log(`[Mercado Pago PIX] Criando PIX para ${salonId}, valor=R$${planValue.toFixed(2)}, email=${payerEmail}...`);
+
+    const paymentSdk = new Payment(mpClient);
+    const result = await paymentSdk.create({
+      body: {
+        transaction_amount: planValue,
+        payment_method_id: "pix",
+        payer: { email: payerEmail },
+        external_reference: salonId,
         description: "Assinatura Gestão Modello - 30 dias",
-        externalReference: salonId,
-      }),
+      },
     });
-    const payment = await paymentRes.json();
-    console.log(`[Asaas PIX] Resposta criação cobrança (status ${paymentRes.status}):`, JSON.stringify(payment, null, 2));
 
-    if (!payment.id) {
-      throw new Error(payment.errors?.[0]?.description || "Falha ao criar cobrança no Asaas");
+    console.log(`[Mercado Pago PIX] Resposta criação cobrança:`, { id: result.id, status: result.status, hasQr: !!result.point_of_interaction?.transaction_data?.qr_code });
+
+    if (!result.id) {
+      throw new Error("Falha ao criar cobrança PIX no Mercado Pago");
     }
 
-    // 4. Get PIX QR Code
-    console.log(`[Asaas PIX] Obtendo QR Code para paymentId=${payment.id}...`);
-    const qrRes = await fetch(`${apiUrl}/payments/${payment.id}/pixQrCode`, {
-      method: "GET",
-      headers: { "access_token": process.env.ASAAS_API_KEY! },
-    });
-    const qrCode = await qrRes.json();
-    console.log(`[Asaas PIX] QR Code obtido, encodedImage=${qrCode.encodedImage ? "presente" : "ausente"}, payload=${qrCode.payload ? "presente" : "ausente"}`);
+    const qrCode = result.point_of_interaction?.transaction_data?.qr_code || "";
+    const qrCodeBase64 = result.point_of_interaction?.transaction_data?.qr_code_base64 || "";
 
-    if (!qrCode.encodedImage) {
-      throw new Error(qrCode.errors?.[0]?.description || "Falha ao obter QR Code PIX");
+    if (!qrCodeBase64) {
+      throw new Error("Falha ao obter QR Code PIX do Mercado Pago");
     }
 
-    console.log(`[Asaas PIX] Fluxo completo com sucesso para ${salonId}!`);
+    console.log(`[Mercado Pago PIX] Fluxo completo com sucesso para ${salonId}!`);
     return res.json({
       success: true,
-      paymentId: payment.id,
-      encodedImage: qrCode.encodedImage,
-      payload: qrCode.payload,
-      expirationDate: qrCode.expirationDate,
+      paymentId: result.id,
+      encodedImage: qrCodeBase64,
+      payload: qrCode,
       value: planValue,
     });
   } catch (err: any) {
-    console.error("[Asaas PIX] Erro ao criar PIX:", err?.message || err, err?.stack || "");
+    console.error("[Mercado Pago PIX] Erro ao criar PIX:", err?.message || err, err?.stack || "");
     return res.status(500).json({ success: false, error: err?.message || String(err) });
   }
 });
 
-app.get("/api/asaas/payment-status/:paymentId", async (req, res) => {
+app.get("/api/checkout/payment-status/:paymentId", async (req, res) => {
   const { paymentId } = req.params;
-  console.log(`[Asaas Status] Consultando status do paymentId=${paymentId}...`);
+  console.log(`[Mercado Pago Status] Consultando status do paymentId=${paymentId}...`);
 
-  const headers = getAsaasHeaders();
-  if (!headers) {
-    console.warn("[Asaas Status] Asaas não configurado.");
-    return res.status(400).json({ success: false, error: "Asaas não configurado" });
+  const mpClient = getMercadoPagoClient();
+  if (!mpClient) {
+    console.warn("[Mercado Pago Status] MERCADO_PAGO_ACCESS_TOKEN não configurado.");
+    return res.status(400).json({ success: false, error: "Mercado Pago não configurado" });
   }
 
   try {
-    const apiUrl = getAsaasApiUrl();
-    console.log(`[Asaas Status] GET ${apiUrl}/payments/${paymentId}`);
-    const payRes = await fetch(`${apiUrl}/payments/${paymentId}`, {
-      method: "GET",
-      headers: { "access_token": process.env.ASAAS_API_KEY! },
-    });
-    const payment = await payRes.json();
-    console.log(`[Asaas Status] Resposta (status ${payRes.status}):`, JSON.stringify(payment, null, 2));
+    const paymentSdk = new Payment(mpClient);
+    const result = await paymentSdk.get({ id: paymentId });
+    console.log(`[Mercado Pago Status] Resposta:`, { id: result.id, status: result.status, externalRef: result.external_reference });
 
-    const isConfirmed = payment.status === "CONFIRMED" || payment.status === "RECEIVED";
+    const isApproved = result.status === "approved";
 
-    // Persiste a extensão no Supabase IMEDIATAMENTE quando o polling detecta confirmação,
-    // garantindo que o DB seja atualizado mesmo que o webhook do Asaas nunca dispare.
-    if (isConfirmed && payment.externalReference) {
-      const salonId = payment.externalReference;
-      console.log(`[Asaas Status] Pagamento CONFIRMADO detectado para salão ${salonId}. Persistindo extensão no Supabase...`);
+    // Persiste a extensão no Supabase IMEDIATAMENTE quando o polling detecta confirmação
+    if (isApproved && result.external_reference) {
+      const salonId = result.external_reference;
+      console.log(`[Mercado Pago Status] Pagamento APROVADO detectado para salão ${salonId}. Persistindo extensão no Supabase...`);
       try {
         const newExpDate = await updateTenantExpiration(salonId);
         if (newExpDate) {
-          console.log(`[Asaas Status] Expiração do salão ${salonId} atualizada para: ${newExpDate}`);
+          console.log(`[Mercado Pago Status] Expiração do salão ${salonId} atualizada para: ${newExpDate}`);
         } else {
-          console.warn(`[Asaas Status] updateTenantExpiration retornou null para ${salonId} (possível erro de conexão ou permissão).`);
+          console.warn(`[Mercado Pago Status] updateTenantExpiration retornou null para ${salonId}.`);
         }
       } catch (updateErr) {
-        console.error(`[Asaas Status] Erro ao atualizar expiração via polling:`, updateErr);
+        console.error(`[Mercado Pago Status] Erro ao atualizar expiração via polling:`, updateErr);
       }
     }
 
     return res.json({
       success: true,
-      status: payment.status,
-      confirmedDate: payment.confirmedDate || null,
-      paymentDate: payment.paymentDate || null,
-      salonId: payment.externalReference || null,
+      status: result.status,
+      confirmedDate: result.date_approved || null,
+      paymentDate: result.date_approved || null,
+      salonId: result.external_reference || null,
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || String(err) });
   }
 });
 
-app.post("/api/asaas/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  const webhookToken = process.env.ASAAS_WEBHOOK_TOKEN;
-  if (webhookToken) {
-    const token = req.headers["asaas-webhook-token"] || req.headers["x-webhook-token"];
-    if (token !== webhookToken) {
-      console.warn(`[Asaas Webhook] Token inválido recebido: ${token}`);
-      return res.status(401).json({ error: "Token inválido" });
-    }
-  }
-
+app.post("/api/checkout/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  // Mercado Pago envia notificações. O payload pode variar conforme configuração.
+  // Geralmente recebe { action, data: { id } } ou { type, data: { id } }
   try {
     const body = JSON.parse(req.body.toString());
-    const { event, payment } = body;
-    console.log(`[Asaas Webhook] Evento recebido: ${event}`, payment?.id ? `paymentId=${payment.id}` : "");
+    const paymentId = body?.data?.id || body?.id;
+    const action = body?.action || "";
 
-    if ((event === "PAYMENT_CONFIRMED" || event === "PAYMENT_RECEIVED") && payment?.externalReference) {
-      const salonId = payment.externalReference;
-      console.log(`[Asaas Webhook] Pagamento confirmado para salão ${salonId}. Atualizando expiração...`);
+    console.log(`[Mercado Pago Webhook] Notificação recebida: action=${action}, paymentId=${paymentId}`);
+
+    if (!paymentId) {
+      return res.json({ received: true });
+    }
+
+    // Consulta o status do pagamento
+    const mpClient = getMercadoPagoClient();
+    if (!mpClient) {
+      console.warn("[Mercado Pago Webhook] Mercado Pago não configurado.");
+      return res.json({ received: true });
+    }
+
+    const paymentSdk = new Payment(mpClient);
+    const result = await paymentSdk.get({ id: paymentId });
+
+    if (result.status === "approved" && result.external_reference) {
+      const salonId = result.external_reference;
+      console.log(`[Mercado Pago Webhook] Pagamento aprovado para salão ${salonId}. Atualizando expiração...`);
       const newExpDate = await updateTenantExpiration(salonId);
-      console.log(`[Asaas Webhook] Expiração do salão ${salonId} atualizada para: ${newExpDate}`);
+      console.log(`[Mercado Pago Webhook] Expiração do salão ${salonId} atualizada para: ${newExpDate}`);
     } else {
-      console.log(`[Asaas Webhook] Evento ignorado: ${event}`);
+      console.log(`[Mercado Pago Webhook] Pagamento ignorado: status=${result.status}`);
     }
 
     return res.json({ received: true });
   } catch (err: any) {
-    console.error("[Asaas Webhook] Erro ao processar webhook:", err?.message || err, err?.stack || "");
+    console.error("[Mercado Pago Webhook] Erro ao processar webhook:", err?.message || err);
     return res.status(200).json({ received: true });
   }
 });
 
-// Endpoint para simular webhook na sandbox de testes locais (offline-first sandbox fallback)
-app.post("/api/simulate-webhook", express.json(), async (req, res) => {
-  const { salonId, expirationDate, action } = req.body;
+// Endpoint para simular webhook em testes locais
+app.post("/api/checkout/simulate-webhook", express.json(), async (req, res) => {
+  const { salonId } = req.body;
   console.log(`[Simulated Webhook] Requisitado para salão ${salonId}`);
 
   if (!salonId) {
@@ -516,8 +409,8 @@ app.post("/api/simulate-webhook", express.json(), async (req, res) => {
     success: true,
     message: `Webhook simulado! Assinatura renovada até ${newExpDate}.`,
     payload: {
-      event: "PAYMENT_CONFIRMED",
-      status: "active",
+      event: "PAYMENT_APPROVED",
+      status: "approved",
       salonId,
       newExpiration: newExpDate
     }
@@ -556,7 +449,6 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
       cnpj: t.cnpj || null,
       phone: t.phone || null,
       email: t.email || null,
-      asaas_customer_id: t.asaas_customer_id || null,
       password: t.password || null,
       city: t.city || null,
       address: t.address || null,
@@ -699,28 +591,6 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
           errors[mapping.key] = error.message;
         } else {
           results[mapping.key] = sanitized.length;
-          // Após upsert bem-sucedido de tenants, tenta criar Customer Asaas para salões com email mas sem asaas_customer_id
-          if (mapping.table === "tenants" && Array.isArray(sanitized)) {
-            for (const tenant of sanitized) {
-              if (tenant.email && !tenant.asaas_customer_id) {
-                console.log(`[Asaas Sync] Tentando criar Customer Asaas para tenant ${tenant.id} (email=${tenant.email})...`);
-                getOrCreateAsaasCustomer({
-                  id: tenant.id,
-                  name: tenant.name || "",
-                  cnpj: tenant.cnpj || "",
-                  phone: tenant.phone || "",
-                  email: tenant.email,
-                  asaasCustomerId: tenant.asaas_customer_id || undefined,
-                }).then((customerId) => {
-                  if (customerId) {
-                    console.log(`[Asaas Sync] Customer criado/vinculado com sucesso para tenant ${tenant.id}: ${customerId}`);
-                  }
-                }).catch((err) => {
-                  console.error(`[Asaas Sync] Erro ao criar Customer Asaas para tenant ${tenant.id}:`, err?.message || err);
-                });
-              }
-            }
-          }
         }
       } else {
         results[mapping.key] = 0;
@@ -740,7 +610,6 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
           cnpj: t.cnpj || "",
           phone: t.phone || "",
           email: t.email || "",
-          asaasCustomerId: t.asaas_customer_id || "",
           password: t.password || "",
           city: t.city || "",
           address: t.address || "",
@@ -897,7 +766,6 @@ app.get("/api/supa-pull", async (req, res) => {
       cnpj: t.cnpj || "",
       phone: t.phone || "",
       email: t.email || "",
-      asaasCustomerId: t.asaas_customer_id || "",
       password: t.password || "",
       city: t.city || "",
       address: t.address || "",
