@@ -20,6 +20,8 @@ import {
   runProfessionalsMigration2026, getLastProfessionalsMigrationReport
 } from './dataStore';
 
+import ModalPagamentoPix from './components/ModalPagamentoPix';
+import ModalConfirmCascadeDelete from './components/ModalConfirmCascadeDelete';
 import { formatPhone, formatCNPJ } from './utils';
 import { getTenantStatus, getDaysRemaining, GRACE_PERIOD_DAYS, type TenantStatus } from './utils/billing/getTenantStatus';
 
@@ -132,8 +134,8 @@ export default function App() {
   const [showStripeSuccessModal, setShowStripeSuccessModal] = useState<boolean>(false);
   const [showPixModal, setShowPixModal] = useState<boolean>(false);
   const [pixData, setPixData] = useState<{ encodedImage: string; payload: string; paymentId: string } | null>(null);
-  const [pixStatus, setPixStatus] = useState<'waiting' | 'confirmed' | 'failed'>('waiting');
-  const pixIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [cascadeDeleteTarget, setCascadeDeleteTarget] = useState<string | null>(null);
   const [alertState, setAlertState] = useState<{message: string; variant?: 'info' | 'success' | 'error'} | null>(null);
   const [restrictedActionName, setRestrictedActionName] = useState<string | null>(null);
 
@@ -348,60 +350,6 @@ export default function App() {
     }
   }, [currentSalon, userRole]);
 
-  // Polling de status do PIX Asaas
-  useEffect(() => {
-    if (!showPixModal || !pixData || pixStatus !== 'waiting') {
-      if (pixIntervalRef.current) {
-        clearInterval(pixIntervalRef.current);
-        pixIntervalRef.current = null;
-      }
-      return;
-    }
-
-    pixIntervalRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/asaas/payment-status/${pixData.paymentId}`);
-        const data = await res.json();
-        if (data.success && (data.status === "CONFIRMED" || data.status === "RECEIVED")) {
-          setPixStatus('confirmed');
-          if (pixIntervalRef.current) {
-            clearInterval(pixIntervalRef.current);
-            pixIntervalRef.current = null;
-          }
-          const list = loadSalons();
-          const updated = list.map((s) => {
-            if (s.id === currentSalon?.id) {
-              const base = new Date();
-              base.setDate(base.getDate() + 30);
-              const yyyy = base.getFullYear();
-              const mm = String(base.getMonth() + 1).padStart(2, '0');
-              const dd = String(base.getDate()).padStart(2, '0');
-              return { ...s, expirationDate: `${yyyy}-${mm}-${dd}`, isActive: true };
-            }
-            return s;
-          });
-          triggerUpdateSalons(updated);
-          const updatedSalon = updated.find((s) => s.id === currentSalon?.id);
-          if (updatedSalon) setCurrentSalon(updatedSalon);
-          setTimeout(() => {
-            setShowPixModal(false);
-            setPixData(null);
-            setShowStripeSuccessModal(true);
-          }, 1500);
-        }
-      } catch (_) {
-        // keep polling
-      }
-    }, 5000);
-
-    return () => {
-      if (pixIntervalRef.current) {
-        clearInterval(pixIntervalRef.current);
-        pixIntervalRef.current = null;
-      }
-    };
-  }, [showPixModal, pixData, pixStatus, currentSalon]);
-
   // Status de assinatura calculado reativamente
   const tenantStatus = useMemo<TenantStatus>(() => {
     if (userRole === "SAAS_ADMIN") return "ACTIVE";
@@ -439,6 +387,9 @@ export default function App() {
 
   const handleLaunchStripeCheckout = async () => {
     if (!currentSalon) return;
+    if (isProcessingPayment) return;
+    setIsProcessingPayment(true);
+
     const cleanDomain = currentSalon.name
       .toLowerCase()
       .normalize("NFD")
@@ -449,11 +400,7 @@ export default function App() {
       const pixRes = await fetch("/api/asaas/create-pix", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          salonId: currentSalon.id,
-          customerEmail: "financeiro@" + (cleanDomain || "salao") + ".com.br",
-          description: "Assinatura Gestão Modello - 30 dias",
-        }),
+        body: JSON.stringify({ salonId: currentSalon.id }),
       });
       const pixDataRaw = await pixRes.json();
 
@@ -463,12 +410,22 @@ export default function App() {
           payload: pixDataRaw.payload,
           paymentId: pixDataRaw.paymentId,
         });
-        setPixStatus('waiting');
         setShowPixModal(true);
+        setIsProcessingPayment(false);
         return;
       }
-    } catch (_) {
-      // Asaas not available, fall through to mock/Stripe
+
+      if (pixDataRaw.error) {
+        if (pixDataRaw.isMock) {
+          console.log("[PIX] Asaas não configurado, usando fallback Stripe.");
+        } else {
+          setAlertState({ message: `Asaas: ${pixDataRaw.error}`, variant: "error" });
+          setIsProcessingPayment(false);
+          return;
+        }
+      }
+    } catch (err: any) {
+      console.warn("[PIX] Erro ao chamar Asaas, usando fallback Stripe:", err?.message);
     }
 
     try {
@@ -519,6 +476,8 @@ export default function App() {
     } catch (err: any) {
       setAlertState({ message: "Falha ao comunicar com o servidor de faturamento: " + err.message, variant: "error" });
     }
+
+    setIsProcessingPayment(false);
   };
   
   // Sincronização Automática em segundo plano com o Supabase Cloud
@@ -552,10 +511,13 @@ export default function App() {
         // Fazemos isso independente de data.success para garantir que as atualizações de licenças e limites corporativos nunca fiquem presas por erros em tabelas secundárias.
         if (Array.isArray(data.tenants)) {
           // Merge server data with local PIX fields (server may strip unknown fields)
+          // Mas preserva expirationDate e isActive do local se o servidor ainda não refletir
+          // a extensão mais recente (ex: polling acabou de confirmar mas webhook ainda não persistiu).
           const mergedTenants = data.tenants.map((serverSalon: any) => {
             const localSalon = salons.find(s => s.id === serverSalon.id);
             if (localSalon) {
               return {
+                // Servidor é a fonte da verdade para TODOS os campos
                 ...serverSalon,
               };
             }
@@ -796,8 +758,14 @@ export default function App() {
 
   const handleDeleteComandaObj = async (id: string) => {
     if (isMutationBlocked("Excluir Comanda")) return;
+    // Abre modal de confirmação em cascata com preview dos registros vinculados
+    setCascadeDeleteTarget(id);
+  };
+
+  const executeCascadeDelete = async (id: string) => {
+    if (isMutationBlocked("Excluir Comanda")) return;
     try {
-      const res = await fetch(`/api/comandas/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/comandas/${id}?cascade=true`, { method: "DELETE" });
       const data = await res.json();
       if (!data.success) {
         console.warn("[Comanda Delete] Falha ao deletar no servidor:", data.error);
@@ -814,7 +782,7 @@ export default function App() {
       setComandas(filtered.filter(c => c.salonId === currentSalon.id));
     }
 
-    // Estorna os registros financeiros vinculados à comanda excluída (receita e comissões)
+    // Remove registros financeiros vinculados à comanda excluída
     const allFinancials = loadFinancials();
     const filteredFinancials = allFinancials.filter(f => f.relatedComandaId !== id);
     saveFinancials(filteredFinancials);
@@ -1097,6 +1065,21 @@ export default function App() {
     if (currentSalon && currentSalon.id === updatedSalon.id) {
       setCurrentSalon(updatedSalon);
     }
+    performAutoSync(true);
+
+    // Persiste campos de billing no servidor via endpoint dedicado
+    // (auto-sync não sobrescreve billing fields no Supabase)
+    fetch("/api/update-tenant-billing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenantId: updatedSalon.id,
+        expirationDate: updatedSalon.expirationDate,
+        planValue: updatedSalon.planValue,
+        isActive: updatedSalon.isActive,
+        cardFeePercentProfDeduct: updatedSalon.cardFeePercentProfDeduct,
+      })
+    }).catch(err => console.error("[Update Billing] Erro ao persistir:", err));
   };
 
   const handleAddNewChartGroupObj = (group: ChartAccountGroup) => {
@@ -1631,7 +1614,7 @@ export default function App() {
 
   // ADMINISTRATIVE CONSOLE WORKSPACE FOR SALON OWNER
   return (
-    <div className="min-h-screen md:h-screen overflow-x-hidden md:overflow-hidden bg-[#FCF9F2] flex flex-col md:flex-row font-sans relative">
+    <div className="min-h-screen md:h-screen overflow-hidden bg-[#FCF9F2] flex flex-col md:flex-row font-sans relative">
 
       {/* MOBILE STICKY HEADER TO AVOID EMPATHETIC CLUTTER AND SCROLL NOISE */}
       <header className="sticky top-0 left-0 right-0 h-16 bg-black text-white flex items-center justify-between px-5 z-40 md:hidden border-b border-zinc-800 shrink-0 print:hidden">
@@ -1661,7 +1644,7 @@ export default function App() {
 
       {/* RESPONSIVE DRAWER SIDEBAR */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-black text-white p-6 flex flex-col justify-between shrink-0 transform transition-transform duration-300 ease-in-out md:translate-x-0 md:static md:h-screen md:sticky md:top-0 print:hidden
+        fixed inset-y-0 left-0 z-50 w-64 bg-black text-white p-6 flex flex-col shrink-0 transform transition-transform duration-300 ease-in-out md:translate-x-0 md:static md:h-screen md:sticky md:top-0 overflow-y-auto print:hidden
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
         <div>
@@ -1771,10 +1754,14 @@ export default function App() {
                   </div>
                   <button
                     onClick={handleLaunchStripeCheckout}
-                    className="w-full md:w-auto shrink-0 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                    disabled={isProcessingPayment}
+                    className="w-full md:w-auto shrink-0 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 disabled:cursor-not-allowed text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
                   >
-                    <CreditCard className="w-4 h-4 text-stone-100" />
-                    <span>Renovar Assinatura</span>
+                    {isProcessingPayment ? (
+                      <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Processando...</span></>
+                    ) : (
+                      <><CreditCard className="w-4 h-4 text-stone-100" /><span>Renovar Assinatura</span></>
+                    )}
                   </button>
                 </div>
               );
@@ -1792,10 +1779,14 @@ export default function App() {
                 </div>
                 <button
                   onClick={handleLaunchStripeCheckout}
-                  className="w-full md:w-auto shrink-0 bg-red-700 hover:bg-red-800 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                  disabled={isProcessingPayment}
+                  className="w-full md:w-auto shrink-0 bg-red-700 hover:bg-red-800 disabled:bg-red-300 disabled:cursor-not-allowed text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
                 >
-                  <CreditCard className="w-4 h-4 text-stone-100" />
-                  <span>Renovar Assinatura</span>
+                  {isProcessingPayment ? (
+                    <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Processando...</span></>
+                  ) : (
+                    <><CreditCard className="w-4 h-4 text-stone-100" /><span>Renovar Assinatura</span></>
+                  )}
                 </button>
               </div>
             );
@@ -1815,10 +1806,14 @@ export default function App() {
                 </div>
                 <button
                   onClick={handleLaunchStripeCheckout}
-                  className="w-full md:w-auto shrink-0 bg-zinc-900 hover:bg-black text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                  disabled={isProcessingPayment}
+                  className="w-full md:w-auto shrink-0 bg-zinc-900 hover:bg-black disabled:bg-zinc-400 disabled:cursor-not-allowed text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
                 >
-                  <CreditCard className="w-4 h-4 text-stone-200" />
-                  <span>Renovar Assinatura</span>
+                  {isProcessingPayment ? (
+                    <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Processando...</span></>
+                  ) : (
+                    <><CreditCard className="w-4 h-4 text-stone-200" /><span>Renovar Assinatura</span></>
+                  )}
                 </button>
               </div>
             );
@@ -1844,7 +1839,8 @@ export default function App() {
                 {currentSalon && (() => {
                   const { isGracePeriod, daysOverdue } = getTenantStatus(currentSalon.expirationDate);
                   if (isGracePeriod) {
-                    return `Sua assinatura venceu há ${daysOverdue} ${daysOverdue === 1 ? 'dia' : 'dias'}. O sistema está em carência de ${GRACE_PERIOD_DAYS} dias em modo somente leitura. Para voltar a lançar comandas, cadastrar atendimentos, computar comissões e realizar baixas financeiras normais, faça a renovação da sua assinatura mensal de R$ 120,00.`;
+                    const planMsg = currentSalon?.planValue ? `R$ ${currentSalon.planValue.toFixed(2).replace('.', ',')}` : 'R$ 120,00';
+                    return `Sua assinatura venceu há ${daysOverdue} ${daysOverdue === 1 ? 'dia' : 'dias'}. O sistema está em carência de ${GRACE_PERIOD_DAYS} dias em modo somente leitura. Para voltar a lançar comandas, cadastrar atendimentos, computar comissões e realizar baixas financeiras normais, faça a renovação da sua assinatura mensal de ${planMsg}.`;
                   }
                   return `Sua assinatura expirou há ${daysOverdue} ${daysOverdue === 1 ? 'dia' : 'dias'} e o período de carência já se encerrou. Renove agora para voltar a utilizar o sistema.`;
                 })()}
@@ -1852,13 +1848,18 @@ export default function App() {
               <div className="flex flex-col gap-2 pt-1.5">
                 <button
                   onClick={async () => {
+                    if (isProcessingPayment) return;
                     setRestrictedActionName(null);
                     await handleLaunchStripeCheckout();
                   }}
-                  className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-2.5 rounded-lg shadow-sm hover:shadow-md transition cursor-pointer flex items-center justify-center gap-1.5 animate-pulse"
+                  disabled={isProcessingPayment}
+                  className="w-full bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 disabled:cursor-not-allowed text-white font-bold text-xs py-2.5 rounded-lg shadow-sm hover:shadow-md transition cursor-pointer flex items-center justify-center gap-1.5 animate-pulse"
                 >
-                  <CreditCard className="w-4 h-4 text-stone-100" />
-                  <span>Renovar Assinatura (R$ 120,00)</span>
+                  {isProcessingPayment ? (
+                    <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Processando...</span></>
+                  ) : (
+                    <><CreditCard className="w-4 h-4 text-stone-100" /><span>Renovar Assinatura (R$ {((currentSalon?.planValue ?? 120)).toFixed(2).replace('.', ',')})</span></>
+                  )}
                 </button>
                 <button
                   onClick={() => setRestrictedActionName(null)}
@@ -1875,76 +1876,44 @@ export default function App() {
         )}
 
         {/* PIX QR Code Modal */}
-        {showPixModal && pixData && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
-            <div className="bg-white rounded-2xl w-full max-w-sm p-6 border-2 border-emerald-500 shadow-2xl text-center space-y-4 font-sans animate-scale-in">
-              <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mx-auto border-2 border-emerald-200 shadow-2xs">
-                {pixStatus === 'waiting' ? (
-                  <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-                ) : pixStatus === 'confirmed' ? (
-                  <ShieldCheck className="w-8 h-8 text-emerald-600" />
-                ) : (
-                  <ShieldAlert className="w-8 h-8 text-rose-600" />
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <h3 className="text-lg font-black text-emerald-950 leading-none">
-                  {pixStatus === 'waiting' ? 'Pagamento via PIX' : pixStatus === 'confirmed' ? 'Pagamento Confirmado!' : 'Falha no Pagamento'}
-                </h3>
-                <p className="text-xs text-stone-500 leading-relaxed px-2 mt-2">
-                  {pixStatus === 'waiting'
-                    ? 'Escaneie o QR Code abaixo com seu aplicativo bancário para pagar.'
-                    : pixStatus === 'confirmed'
-                    ? 'Seu pagamento foi confirmado. Sua assinatura será renovada automaticamente.'
-                    : 'Houve um problema com o pagamento. Tente novamente.'}
-                </p>
-              </div>
-              {pixStatus === 'waiting' && (
-                <>
-                  <div className="bg-white rounded-xl p-2 border border-stone-200 mx-auto w-56 h-56 flex items-center justify-center">
-                    <img
-                      src={`data:image/png;base64,${pixData.encodedImage}`}
-                      alt="QR Code PIX"
-                      className="w-52 h-52"
-                    />
-                  </div>
-                  <div className="bg-stone-50 rounded-lg p-3 border border-stone-200">
-                    <p className="text-[9px] text-stone-400 uppercase font-bold tracking-wider mb-1">Código Copia e Cola</p>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(pixData.payload);
-                        setAlertState({ message: "Código PIX copiado!", variant: 'success' });
-                      }}
-                      className="w-full text-left text-[10px] font-mono text-stone-800 bg-white border border-stone-200 rounded-md p-2 break-all hover:border-emerald-300 transition cursor-pointer"
-                    >
-                      {pixData.payload}
-                    </button>
-                  </div>
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[10px] text-amber-800 leading-relaxed">
-                    ⏱ O QR Code expira em até 24h. Após o pagamento, a confirmação pode levar alguns segundos.
-                  </div>
-                </>
-              )}
-              <button
-                onClick={() => {
-                  setShowPixModal(false);
-                  setPixData(null);
-                  setPixStatus('waiting');
-                  if (pixIntervalRef.current) {
-                    clearInterval(pixIntervalRef.current);
-                    pixIntervalRef.current = null;
-                  }
-                  if (pixStatus === 'confirmed') {
-                    setShowStripeSuccessModal(true);
-                  }
-                }}
-                className="w-full bg-zinc-950 hover:bg-black text-white font-bold text-xs py-2.5 rounded-lg shadow-sm transition cursor-pointer"
-              >
-                {pixStatus === 'confirmed' ? 'Ver Painel' : 'Fechar'}
-              </button>
-            </div>
-          </div>
-        )}
+        <ModalPagamentoPix
+          open={showPixModal}
+          pixData={pixData}
+          onClose={() => {
+            setShowPixModal(false);
+            setPixData(null);
+          }}
+          onPaymentConfirmed={() => {
+            const list = loadSalons();
+            const updated = list.map((s) => {
+              if (s.id === currentSalon?.id) {
+                const base = new Date();
+                base.setDate(base.getDate() + 30);
+                const yyyy = base.getFullYear();
+                const mm = String(base.getMonth() + 1).padStart(2, '0');
+                const dd = String(base.getDate()).padStart(2, '0');
+                return { ...s, expirationDate: `${yyyy}-${mm}-${dd}`, isActive: true };
+              }
+              return s;
+            });
+            triggerUpdateSalons(updated);
+            const updatedSalon = updated.find((s) => s.id === currentSalon?.id);
+            if (updatedSalon) setCurrentSalon(updatedSalon);
+            // Força sincronização imediata com Supabase para persistir a extensão local
+            performAutoSync(true);
+            setShowPixModal(false);
+            setPixData(null);
+            setShowStripeSuccessModal(true);
+          }}
+        />
+
+        {/* Cascade Delete Confirmation Modal */}
+        <ModalConfirmCascadeDelete
+          open={!!cascadeDeleteTarget}
+          comandaId={cascadeDeleteTarget}
+          onConfirm={executeCascadeDelete}
+          onClose={() => setCascadeDeleteTarget(null)}
+        />
 
         {/* Stripe Payment Success Celebration Modal */}
         {showStripeSuccessModal && (
@@ -1956,7 +1925,7 @@ export default function App() {
               <div className="space-y-1.5">
                 <h3 className="text-lg font-black text-emerald-950 leading-none">Assinatura Renovada com Sucesso!</h3>
                 <p className="text-xs text-emerald-850 leading-relaxed px-2 mt-2">
-                  Parabéns! O faturamento mensal de <strong>R$ 120,00</strong> foi detectado e processado com absoluto sucesso.
+                  Parabéns! O faturamento mensal de <strong>R$ {((currentSalon?.planValue ?? 120)).toFixed(2).replace('.', ',')}</strong> foi detectado e processado com absoluto sucesso.
                 </p>
               </div>
               <div className="bg-[#e6f4ea] text-[#137333] border border-[#ceead6] p-3.5 rounded-lg text-xs leading-relaxed text-left space-y-1 font-sans">

@@ -168,6 +168,93 @@ function getAsaasApiUrl() {
     : "https://api.asaas.com/v3";
 }
 
+function getAsaasEnvName(): string {
+  return process.env.ASAAS_SANDBOX === "true" ? "SANDBOX" : "PRODUÇÃO";
+}
+
+function sanitizeCpfCnpj(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
+
+function sanitizePhone(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
+
+async function getOrCreateAsaasCustomer(salon: {
+  id: string;
+  name: string;
+  cnpj: string;
+  phone: string;
+  email?: string;
+  asaasCustomerId?: string;
+}): Promise<string | null> {
+  if (salon.asaasCustomerId) {
+    console.log(`[Asaas Customer] Salão ${salon.id} já possui asaas_customer_id=${salon.asaasCustomerId}, reutilizando.`);
+    return salon.asaasCustomerId;
+  }
+
+  const headers = getAsaasHeaders();
+  if (!headers) {
+    console.warn("[Asaas Customer] ASAAS_API_KEY não configurada. Não foi possível criar customer.");
+    return null;
+  }
+
+  const apiUrl = getAsaasApiUrl();
+  const cleanCnpj = sanitizeCpfCnpj(salon.cnpj);
+  const cleanPhone = sanitizePhone(salon.phone);
+
+  console.log(`[Asaas Customer] Criando customer no Asaas para salão ${salon.id}...`, {
+    name: salon.name,
+    email: salon.email || `financeiro@${salon.id}.com.br`,
+    cpfCnpj: cleanCnpj || "não informado",
+    phone: cleanPhone || "não informado",
+    apiUrl,
+  });
+
+  try {
+    const res = await fetch(`${apiUrl}/customers`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: salon.name,
+        email: salon.email || `financeiro@${salon.id}.com.br`,
+        cpfCnpj: cleanCnpj || undefined,
+        phone: cleanPhone || undefined,
+        externalReference: salon.id,
+      }),
+    });
+
+    const customer = await res.json();
+    console.log(`[Asaas Customer] Resposta da API (status ${res.status}):`, JSON.stringify(customer, null, 2));
+
+    if (customer.id) {
+      const supabase = getSupabase();
+      const { error: updateErr } = await supabase
+        .from("tenants")
+        .update({ asaas_customer_id: customer.id })
+        .eq("id", salon.id);
+
+      if (updateErr) {
+        console.error(`[Asaas Customer] Erro ao salvar asaas_customer_id no Supabase:`, updateErr);
+      } else {
+        console.log(`[Asaas Customer] Customer criado com sucesso! ID=${customer.id} salvo no Supabase.`);
+      }
+      return customer.id;
+    }
+
+    console.error(`[Asaas Customer] Erro ao criar customer (status ${res.status}):`, customer.errors || customer);
+    const errMsg = customer.errors?.[0]?.description
+      || customer.errors?.[0]?.message
+      || `Erro HTTP ${res.status} ao criar customer no Asaas`;
+    const envHint = ` (ambiente configurado: ${getAsaasEnvName()}, URL: ${getAsaasApiUrl()})`;
+    throw new Error(`Asaas: ${errMsg}${envHint}`);
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Asaas:")) throw err;
+    console.error(`[Asaas Customer] Exceção ao chamar API Asaas:`, err);
+    throw new Error(`Asaas: erro de conexão com API - ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function calculateNewExpiration(expirationDate: string | null): string {
   const newExp = new Date();
   if (expirationDate) {
@@ -208,98 +295,174 @@ async function updateTenantExpiration(salonId: string): Promise<string | null> {
   return formattedExpDate;
 }
 
+// Rate-limit map: salonId → timestamp da última requisição
+const createPixRequestTimestamps = new Map<string, number>();
+
 app.post("/api/asaas/create-pix", express.json(), async (req, res) => {
-  const { salonId, customerEmail, description } = req.body || {};
+  const { salonId } = req.body || {};
+  console.log(`[Asaas PIX] Requisição recebida para salonId=${salonId}`);
+
   if (!salonId) {
+    console.warn("[Asaas PIX] salonId não informado.");
     return res.status(400).json({ success: false, error: "salonId é obrigatório" });
   }
 
+  // Rate limit: bloqueia requisições duplicadas do mesmo salonId em menos de 10 segundos
+  const now = Date.now();
+  const lastRequest = createPixRequestTimestamps.get(salonId);
+  if (lastRequest && (now - lastRequest) < 10000) {
+    console.warn(`[Asaas PIX] Requisição duplicada para salonId=${salonId} ignorada (${now - lastRequest}ms desde a última).`);
+    return res.status(429).json({ success: false, error: "Já existe uma cobrança PIX sendo processada para este salão. Aguarde alguns segundos e tente novamente." });
+  }
+  createPixRequestTimestamps.set(salonId, now);
+  // Limpeza periódica para evitar vazamento de memória
+  setTimeout(() => createPixRequestTimestamps.delete(salonId), 10000);
+
   const headers = getAsaasHeaders();
   if (!headers) {
+    console.warn("[Asaas PIX] ASAAS_API_KEY não configurada. Retornando modo simulação.");
     return res.status(400).json({ success: false, isMock: true, error: "Asaas não configurado. Use o modo simulação." });
   }
 
-  const apiUrl = getAsaasApiUrl();
+  console.log(`[Asaas PIX] ASAAS_API_KEY presente, apiUrl=${getAsaasApiUrl()}`);
 
   try {
-    // 1. Create customer in Asaas (or find existing)
-    const customerRes = await fetch(`${apiUrl}/customers`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        name: "Cliente Gestão Modello",
-        email: customerEmail || "cliente@modello.com.br",
-        externalReference: salonId,
-      }),
-    });
-    const customer = await customerRes.json();
-    if (!customer.id) {
-      throw new Error(customer.errors?.[0]?.description || "Falha ao criar cliente no Asaas");
+    // 1. Fetch salon data from DB
+    console.log(`[Asaas PIX] Buscando dados do salão ${salonId} no Supabase...`);
+    let       salonData: { name: string; cnpj: string; phone: string; email?: string; asaas_customer_id?: string; plan_value?: number } | null = null;
+    const hasSupabase = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (hasSupabase) {
+      const supabase = getSupabase();
+      const { data, error: fetchErr } = await supabase
+        .from("tenants")
+        .select("name, cnpj, phone, email, asaas_customer_id, plan_value")
+        .eq("id", salonId)
+        .single();
+      if (fetchErr) {
+        console.error(`[Asaas PIX] Erro ao buscar salão:`, fetchErr);
+      }
+      if (data) {
+        salonData = data;
+        console.log(`[Asaas PIX] Dados do salão encontrados:`, { name: data.name, email: data.email, hasCustomerId: !!data.asaas_customer_id });
+      }
+    } else {
+      console.warn("[Asaas PIX] Supabase não configurado.");
     }
 
-    // 2. Create PIX payment
+    if (!salonData) {
+      console.error(`[Asaas PIX] Salão ${salonId} não encontrado no banco.`);
+      return res.status(400).json({ success: false, error: "Salão não encontrado no banco de dados." });
+    }
+
+    // 2. Get or create Asaas customer with sanitized data
+    console.log(`[Asaas PIX] Chamando getOrCreateAsaasCustomer para ${salonId}...`);
+    const customerId = await getOrCreateAsaasCustomer({
+      id: salonId,
+      name: salonData.name,
+      cnpj: salonData.cnpj || "",
+      phone: salonData.phone || "",
+      email: salonData.email || undefined,
+      asaasCustomerId: salonData.asaas_customer_id || undefined,
+    });
+    console.log(`[Asaas PIX] customerId obtido: ${customerId}`);
+
+    // 3. Create PIX payment with dynamic plan value
+    const planValue = salonData.plan_value !== undefined ? salonData.plan_value : 120.00;
+    const apiUrl = getAsaasApiUrl();
     const today = new Date().toISOString().substring(0, 10);
+    console.log(`[Asaas PIX] Criando cobrança PIX para customer=${customerId}, valor=R$${planValue.toFixed(2)}, dueDate=${today}, planValue=${planValue}...`);
     const paymentRes = await fetch(`${apiUrl}/payments`, {
       method: "POST",
       headers,
       body: JSON.stringify({
-        customer: customer.id,
+        customer: customerId,
         billingType: "PIX",
-        value: 120.00,
+        value: planValue,
         dueDate: today,
-        description: description || "Assinatura Gestão Modello - 30 dias",
+        description: "Assinatura Gestão Modello - 30 dias",
         externalReference: salonId,
       }),
     });
     const payment = await paymentRes.json();
+    console.log(`[Asaas PIX] Resposta criação cobrança (status ${paymentRes.status}):`, JSON.stringify(payment, null, 2));
+
     if (!payment.id) {
       throw new Error(payment.errors?.[0]?.description || "Falha ao criar cobrança no Asaas");
     }
 
-    // 3. Get PIX QR Code
+    // 4. Get PIX QR Code
+    console.log(`[Asaas PIX] Obtendo QR Code para paymentId=${payment.id}...`);
     const qrRes = await fetch(`${apiUrl}/payments/${payment.id}/pixQrCode`, {
       method: "GET",
       headers: { "access_token": process.env.ASAAS_API_KEY! },
     });
     const qrCode = await qrRes.json();
+    console.log(`[Asaas PIX] QR Code obtido, encodedImage=${qrCode.encodedImage ? "presente" : "ausente"}, payload=${qrCode.payload ? "presente" : "ausente"}`);
+
     if (!qrCode.encodedImage) {
       throw new Error(qrCode.errors?.[0]?.description || "Falha ao obter QR Code PIX");
     }
 
+    console.log(`[Asaas PIX] Fluxo completo com sucesso para ${salonId}!`);
     return res.json({
       success: true,
       paymentId: payment.id,
       encodedImage: qrCode.encodedImage,
       payload: qrCode.payload,
       expirationDate: qrCode.expirationDate,
-      value: 120.00,
+      value: planValue,
     });
   } catch (err: any) {
-    console.error("[Asaas] Erro ao criar PIX:", err);
+    console.error("[Asaas PIX] Erro ao criar PIX:", err?.message || err, err?.stack || "");
     return res.status(500).json({ success: false, error: err?.message || String(err) });
   }
 });
 
 app.get("/api/asaas/payment-status/:paymentId", async (req, res) => {
   const { paymentId } = req.params;
+  console.log(`[Asaas Status] Consultando status do paymentId=${paymentId}...`);
+
   const headers = getAsaasHeaders();
   if (!headers) {
+    console.warn("[Asaas Status] Asaas não configurado.");
     return res.status(400).json({ success: false, error: "Asaas não configurado" });
   }
 
   try {
     const apiUrl = getAsaasApiUrl();
+    console.log(`[Asaas Status] GET ${apiUrl}/payments/${paymentId}`);
     const payRes = await fetch(`${apiUrl}/payments/${paymentId}`, {
       method: "GET",
       headers: { "access_token": process.env.ASAAS_API_KEY! },
     });
     const payment = await payRes.json();
+    console.log(`[Asaas Status] Resposta (status ${payRes.status}):`, JSON.stringify(payment, null, 2));
+
+    const isConfirmed = payment.status === "CONFIRMED" || payment.status === "RECEIVED";
+
+    // Persiste a extensão no Supabase IMEDIATAMENTE quando o polling detecta confirmação,
+    // garantindo que o DB seja atualizado mesmo que o webhook do Asaas nunca dispare.
+    if (isConfirmed && payment.externalReference) {
+      const salonId = payment.externalReference;
+      console.log(`[Asaas Status] Pagamento CONFIRMADO detectado para salão ${salonId}. Persistindo extensão no Supabase...`);
+      try {
+        const newExpDate = await updateTenantExpiration(salonId);
+        if (newExpDate) {
+          console.log(`[Asaas Status] Expiração do salão ${salonId} atualizada para: ${newExpDate}`);
+        } else {
+          console.warn(`[Asaas Status] updateTenantExpiration retornou null para ${salonId} (possível erro de conexão ou permissão).`);
+        }
+      } catch (updateErr) {
+        console.error(`[Asaas Status] Erro ao atualizar expiração via polling:`, updateErr);
+      }
+    }
 
     return res.json({
       success: true,
       status: payment.status,
       confirmedDate: payment.confirmedDate || null,
       paymentDate: payment.paymentDate || null,
+      salonId: payment.externalReference || null,
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || String(err) });
@@ -311,6 +474,7 @@ app.post("/api/asaas/webhook", express.raw({ type: "application/json" }), async 
   if (webhookToken) {
     const token = req.headers["asaas-webhook-token"] || req.headers["x-webhook-token"];
     if (token !== webhookToken) {
+      console.warn(`[Asaas Webhook] Token inválido recebido: ${token}`);
       return res.status(401).json({ error: "Token inválido" });
     }
   }
@@ -318,16 +482,20 @@ app.post("/api/asaas/webhook", express.raw({ type: "application/json" }), async 
   try {
     const body = JSON.parse(req.body.toString());
     const { event, payment } = body;
+    console.log(`[Asaas Webhook] Evento recebido: ${event}`, payment?.id ? `paymentId=${payment.id}` : "");
 
     if ((event === "PAYMENT_CONFIRMED" || event === "PAYMENT_RECEIVED") && payment?.externalReference) {
       const salonId = payment.externalReference;
+      console.log(`[Asaas Webhook] Pagamento confirmado para salão ${salonId}. Atualizando expiração...`);
       const newExpDate = await updateTenantExpiration(salonId);
-      console.log(`[Asaas Webhook] Pagamento confirmado para salão ${salonId}. Nova expiração: ${newExpDate}`);
+      console.log(`[Asaas Webhook] Expiração do salão ${salonId} atualizada para: ${newExpDate}`);
+    } else {
+      console.log(`[Asaas Webhook] Evento ignorado: ${event}`);
     }
 
     return res.json({ received: true });
   } catch (err: any) {
-    console.error("[Asaas Webhook] Erro:", err);
+    console.error("[Asaas Webhook] Erro ao processar webhook:", err?.message || err, err?.stack || "");
     return res.status(200).json({ received: true });
   }
 });
@@ -335,15 +503,23 @@ app.post("/api/asaas/webhook", express.raw({ type: "application/json" }), async 
 // Endpoint para simular webhook na sandbox de testes locais (offline-first sandbox fallback)
 app.post("/api/simulate-webhook", express.json(), async (req, res) => {
   const { salonId, expirationDate, action } = req.body;
-  console.log(`[Simulated Webhook] Requisitado para salão ${salonId} com vencimento ${expirationDate}`);
+  console.log(`[Simulated Webhook] Requisitado para salão ${salonId}`);
+
+  if (!salonId) {
+    return res.status(400).json({ success: false, error: "salonId é obrigatório" });
+  }
+
+  const newExpDate = await updateTenantExpiration(salonId);
+  console.log(`[Simulated Webhook] Expiração atualizada para ${salonId}: ${newExpDate}`);
+
   res.json({
     success: true,
-    message: `Webhook simulado com sucesso! Assinatura atualizada localmente para o dia ${expirationDate}.`,
+    message: `Webhook simulado! Assinatura renovada até ${newExpDate}.`,
     payload: {
-      event: "customer.subscription.updated",
+      event: "PAYMENT_CONFIRMED",
       status: "active",
-      last_payment: new Date().toISOString(),
-      salonId
+      salonId,
+      newExpiration: newExpDate
     }
   });
 });
@@ -379,6 +555,8 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
       name: t.name,
       cnpj: t.cnpj || null,
       phone: t.phone || null,
+      email: t.email || null,
+      asaas_customer_id: t.asaas_customer_id || null,
       password: t.password || null,
       city: t.city || null,
       address: t.address || null,
@@ -391,12 +569,13 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
       max_admins: t.maxAdmins || null,
       expiration_date: t.expirationDate || null,
       is_active: t.isActive !== undefined ? t.isActive : true,
-      card_fee_percent_prof_deduct: t.cardFeePercentProfDeduct || null,
+      card_fee_percent_prof_deduct: t.cardFeePercentProfDeduct ?? null,
       logo_url: t.logoUrl || null,
       stripe_customer_id: t.stripe_customer_id || null,
       stripe_subscription_id: t.stripe_subscription_id || null,
       last_payment_date: t.last_payment_date || null,
-      billing_status: t.billing_status || null
+      billing_status: t.billing_status || null,
+      plan_value: t.planValue !== undefined ? t.planValue : 120.00
     });
 
     const mapProfessional = (p: any) => ({
@@ -475,35 +654,31 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
             if (tenantIds.length > 0) {
               const { data: dbTenants, error: dbFetchErr } = await supabase
                 .from("tenants")
-                .select("id, expiration_date, is_active, stripe_customer_id, stripe_subscription_id, last_payment_date, billing_status, max_professionals, max_admins")
+                .select("id, expiration_date, is_active, stripe_customer_id, stripe_subscription_id, last_payment_date, billing_status, max_professionals, max_admins, card_fee_percent_prof_deduct, plan_value")
                 .in("id", tenantIds);
               
               if (!dbFetchErr && dbTenants && dbTenants.length > 0) {
                 const dbTenantsMap = new Map(dbTenants.map((dbT: any) => [dbT.id, dbT]));
                 sanitized = sanitized.map((t: any) => {
                   const dbT: any = dbTenantsMap.get(t.id);
-                  if (dbT) {
-                    const isSaaSAdmin = payload.isSaaSAdmin === true || payload.isSaasAdmin === true || payload.userRole === "SAAS_ADMIN";
-
-                    // Se a sincronização vier do painel SaaS Admin mestre, aceitamos as alterações do payload para licenças, expiração e status.
-                    // Caso contrário, herda estritamente o que está definitivo no banco do Supabase para impedir que o browser do operador reverta limites contratuais.
-                    const chosenExp = isSaaSAdmin ? (t.expiration_date || dbT.expiration_date) : (dbT.expiration_date || t.expiration_date);
-                    const chosenIsActive = isSaaSAdmin ? (t.is_active !== undefined ? t.is_active : dbT.is_active) : (dbT.is_active !== undefined ? dbT.is_active : t.is_active);
-                    const chosenMaxProfs = isSaaSAdmin ? (t.max_professionals !== null && t.max_professionals !== undefined ? t.max_professionals : dbT.max_professionals) : (dbT.max_professionals !== null && dbT.max_professionals !== undefined ? dbT.max_professionals : t.max_professionals);
-                    const chosenMaxAdmins = isSaaSAdmin ? (t.max_admins !== null && t.max_admins !== undefined ? t.max_admins : dbT.max_admins) : (dbT.max_admins !== null && dbT.max_admins !== undefined ? dbT.max_admins : t.max_admins);
-
-                    // Mescla preservando os campos de faturamento corporativo no banco de dados e aplicando novos campos comuns (endereco/contato/senha)
-                    return {
-                      ...t,
-                      expiration_date: chosenExp,
-                      is_active: chosenIsActive,
-                      max_professionals: chosenMaxProfs,
-                      max_admins: chosenMaxAdmins,
-                      stripe_customer_id: dbT.stripe_customer_id || t.stripe_customer_id,
-                      stripe_subscription_id: dbT.stripe_subscription_id || t.stripe_subscription_id,
-                      last_payment_date: dbT.last_payment_date || t.last_payment_date,
-                      billing_status: dbT.billing_status || t.billing_status
-                    };
+                    if (dbT) {
+                      // Servidor é SEMPRE a fonte da verdade para campos de billing/cadastro.
+                      // O auto-sync NUNCA sobrescreve expiration_date, is_active, plan_value, card_fee_percent_prof_deduct,
+                      // max_professionals, max_admins com dados do cliente. Apenas o endpoint
+                      // /api/update-tenant-billing (chamado pelo modal SAAS_ADMIN) altera esses campos.
+                      return {
+                        ...t,
+                        expiration_date: dbT.expiration_date || t.expiration_date,
+                        is_active: dbT.is_active !== undefined ? dbT.is_active : t.is_active,
+                        max_professionals: dbT.max_professionals !== null && dbT.max_professionals !== undefined ? dbT.max_professionals : t.max_professionals,
+                        max_admins: dbT.max_admins !== null && dbT.max_admins !== undefined ? dbT.max_admins : t.max_admins,
+                        plan_value: dbT.plan_value !== null && dbT.plan_value !== undefined ? dbT.plan_value : t.plan_value,
+                        card_fee_percent_prof_deduct: dbT.card_fee_percent_prof_deduct !== null && dbT.card_fee_percent_prof_deduct !== undefined ? dbT.card_fee_percent_prof_deduct : t.card_fee_percent_prof_deduct,
+                        stripe_customer_id: dbT.stripe_customer_id || t.stripe_customer_id,
+                        stripe_subscription_id: dbT.stripe_subscription_id || t.stripe_subscription_id,
+                        last_payment_date: dbT.last_payment_date || t.last_payment_date,
+                        billing_status: dbT.billing_status || t.billing_status
+                      };
                   }
                   return t;
                 });
@@ -524,6 +699,28 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
           errors[mapping.key] = error.message;
         } else {
           results[mapping.key] = sanitized.length;
+          // Após upsert bem-sucedido de tenants, tenta criar Customer Asaas para salões com email mas sem asaas_customer_id
+          if (mapping.table === "tenants" && Array.isArray(sanitized)) {
+            for (const tenant of sanitized) {
+              if (tenant.email && !tenant.asaas_customer_id) {
+                console.log(`[Asaas Sync] Tentando criar Customer Asaas para tenant ${tenant.id} (email=${tenant.email})...`);
+                getOrCreateAsaasCustomer({
+                  id: tenant.id,
+                  name: tenant.name || "",
+                  cnpj: tenant.cnpj || "",
+                  phone: tenant.phone || "",
+                  email: tenant.email,
+                  asaasCustomerId: tenant.asaas_customer_id || undefined,
+                }).then((customerId) => {
+                  if (customerId) {
+                    console.log(`[Asaas Sync] Customer criado/vinculado com sucesso para tenant ${tenant.id}: ${customerId}`);
+                  }
+                }).catch((err) => {
+                  console.error(`[Asaas Sync] Erro ao criar Customer Asaas para tenant ${tenant.id}:`, err?.message || err);
+                });
+              }
+            }
+          }
         }
       } else {
         results[mapping.key] = 0;
@@ -542,6 +739,8 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
           name: t.name,
           cnpj: t.cnpj || "",
           phone: t.phone || "",
+          email: t.email || "",
+          asaasCustomerId: t.asaas_customer_id || "",
           password: t.password || "",
           city: t.city || "",
           address: t.address || "",
@@ -554,8 +753,9 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
           maxAdmins: t.max_admins || 5,
           expirationDate: t.expiration_date,
           isActive: t.is_active !== undefined ? t.is_active : true,
-          cardFeePercentProfDeduct: t.card_fee_percent_prof_deduct || 0,
-          logoUrl: t.logo_url || ""
+          cardFeePercentProfDeduct: t.card_fee_percent_prof_deduct ?? 0,
+          logoUrl: t.logo_url || "",
+          planValue: t.plan_value !== undefined ? t.plan_value : 120.00
         }));
       }
     } catch (fetchErr) {
@@ -575,6 +775,64 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
   } catch (err: any) {
     console.error("Erro no fluxo do supa-sync endpoint:", err);
     res.status(500).json({ error: err?.message || err?.toString() || "Erro inesperado", success: false });
+  }
+});
+
+// Endpoint dedicado para SAAS_ADMIN atualizar campos de billing de um tenant
+app.post("/api/update-tenant-billing", express.json(), async (req, res) => {
+  const hasSupabase = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!hasSupabase) {
+    return res.json({ success: false, error: "Supabase não configurado" });
+  }
+
+  try {
+    const supabase = getSupabase();
+    const { tenantId, expirationDate, planValue, isActive, cardFeePercentProfDeduct } = req.body;
+
+    if (!tenantId) {
+      return res.status(400).json({ success: false, error: "tenantId é obrigatório" });
+    }
+
+    const updateFields: any = {};
+    if (expirationDate !== undefined) updateFields.expiration_date = expirationDate;
+    if (planValue !== undefined) updateFields.plan_value = planValue;
+    if (isActive !== undefined) updateFields.is_active = isActive;
+    if (cardFeePercentProfDeduct !== undefined) updateFields.card_fee_percent_prof_deduct = cardFeePercentProfDeduct;
+
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({ success: false, error: "Nenhum campo para atualizar" });
+    }
+
+    const { error } = await supabase
+      .from("tenants")
+      .update(updateFields)
+      .eq("id", tenantId);
+
+    if (error) {
+      console.error("[Update Tenant Billing] Erro ao atualizar:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    // Busca o tenant atualizado para retornar
+    const { data: dbTenant } = await supabase
+      .from("tenants")
+      .select("*")
+      .eq("id", tenantId)
+      .single();
+
+    res.json({
+      success: true,
+      tenant: dbTenant ? {
+        id: dbTenant.id,
+        expirationDate: dbTenant.expiration_date,
+        isActive: dbTenant.is_active !== undefined ? dbTenant.is_active : true,
+        planValue: dbTenant.plan_value !== undefined ? dbTenant.plan_value : 120.00,
+        cardFeePercentProfDeduct: dbTenant.card_fee_percent_prof_deduct ?? 0,
+      } : null
+    });
+  } catch (err: any) {
+    console.error("[Update Tenant Billing] Erro:", err);
+    res.status(500).json({ success: false, error: err?.message || "Erro inesperado" });
   }
 });
 
@@ -638,6 +896,8 @@ app.get("/api/supa-pull", async (req, res) => {
       name: t.name,
       cnpj: t.cnpj || "",
       phone: t.phone || "",
+      email: t.email || "",
+      asaasCustomerId: t.asaas_customer_id || "",
       password: t.password || "",
       city: t.city || "",
       address: t.address || "",
@@ -650,8 +910,9 @@ app.get("/api/supa-pull", async (req, res) => {
       maxAdmins: t.max_admins || 5,
       expirationDate: t.expiration_date,
       isActive: t.is_active !== undefined ? t.is_active : true,
-      cardFeePercentProfDeduct: t.card_fee_percent_prof_deduct || 0,
-      logoUrl: t.logo_url || ""
+      cardFeePercentProfDeduct: t.card_fee_percent_prof_deduct ?? 0,
+      logoUrl: t.logo_url || "",
+      planValue: t.plan_value !== undefined ? t.plan_value : 120.00
     }));
 
     const professionals = (dbProfessionals || []).map((p: any) => ({
@@ -895,12 +1156,31 @@ app.post("/api/checkout", async (req, res) => {
     return res.status(400).json({ error: "salonId é obrigatório." });
   }
 
+  // Busca o plan_value do tenant para precificação dinâmica
+  let planValue = 120.00;
+  const hasSupabase = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (hasSupabase) {
+    try {
+      const supabase = getSupabase();
+      const { data: tenant } = await supabase
+        .from("tenants")
+        .select("plan_value")
+        .eq("id", salonId)
+        .single();
+      if (tenant?.plan_value !== undefined) {
+        planValue = Number(tenant.plan_value);
+      }
+    } catch (e) {
+      console.warn(`[Checkout] Não foi possível ler plan_value para ${salonId}, usando default R$120,00`);
+    }
+  }
+  const planValueCents = Math.round(planValue * 100);
+
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
-    // Se o desenvolvedor não configurou Stripe real no .env, devolve link de checkout simulado elegante!
     console.log("[Simulation] Usando link de checkout simulado porque STRIPE_SECRET_KEY está vazia.");
-    
-    // Calcula nova data de vencimento (se adiantado, soma +1 mês ao vencimento, senão data atual + 1 mês)
+    const newExpDate = await updateTenantExpiration(salonId);
+    console.log(`[Simulation] Expiração persistida no Supabase para ${salonId}: ${newExpDate}`);
     return res.json({
       id: "cs_mock_" + Math.random().toString(36).substring(2, 9),
       url: `/index.html?mock_checkout_success=true&salon_id=${salonId}`,
@@ -915,7 +1195,7 @@ app.post("/api/checkout", async (req, res) => {
     const priceData: any = {
       currency: "brl",
       recurring: { interval: "month" },
-      unit_amount: 12000, // R$ 120,00
+      unit_amount: planValueCents,
     };
 
     if (productId) {
@@ -927,7 +1207,6 @@ app.post("/api/checkout", async (req, res) => {
       };
     }
 
-    // Criar sessão de checkout
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "subscription",
@@ -1297,10 +1576,362 @@ app.put("/api/comandas/:id", express.json(), async (req, res) => {
 app.delete("/api/comandas/:id", async (req, res) => {
   try {
     const supabase = getSupabase();
-    const { error } = await supabase.from("comandas").delete().eq("id", req.params.id);
-    if (error) throw error;
-    res.json({ success: true });
+    const comandaId = req.params.id;
+    const cascade = req.query.cascade === "true";
+
+    // Se cascade=true, deleta também todos os registros financeiros vinculados
+    if (cascade) {
+      // Etapa 1: deleta lançamentos financeiros (receita + taxas de cartão + comissões)
+      const { data: deletedFinancials, error: finErr } = await supabase
+        .from("financials")
+        .delete()
+        .eq("related_comanda_id", comandaId)
+        .select("id");
+      if (finErr) {
+        console.error(`[Comanda Delete] Erro ao deletar financials vinculados à comanda ${comandaId}:`, finErr);
+        return res.status(500).json({ success: false, error: `Erro ao deletar registros financeiros: ${finErr.message}` });
+      }
+      console.log(`[Comanda Delete] ${deletedFinancials?.length || 0} registros financeiros deletados para comanda ${comandaId}`);
+    }
+
+    const { error } = await supabase.from("comandas").delete().eq("id", comandaId);
+    if (error) {
+      console.error(`[Comanda Delete] Erro ao deletar comanda ${comandaId}:`, error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.json({ success: true, cascade });
   } catch (err: any) {
+    console.error(`[Comanda Delete] Erro inesperado:`, err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Preview dos registros que serão afetados pela exclusão em cascata
+app.get("/api/comandas/:id/cascade-preview", async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const comandaId = req.params.id;
+
+    // Conta registros financeiros vinculados
+    const { count: financialRecords, error: finErr } = await supabase
+      .from("financials")
+      .select("id", { count: "exact", head: true })
+      .eq("related_comanda_id", comandaId);
+
+    if (finErr) {
+      console.error(`[Cascade Preview] Erro ao contar financials para comanda ${comandaId}:`, finErr);
+      return res.status(500).json({ success: false, error: finErr.message });
+    }
+
+    // Busca dados da comanda para exibir no modal
+    const { data: comanda, error: cmdErr } = await supabase
+      .from("comandas")
+      .select("id, ticket_number, total_value, client_name, status")
+      .eq("id", comandaId)
+      .single();
+
+    if (cmdErr) {
+      console.error(`[Cascade Preview] Erro ao buscar comanda ${comandaId}:`, cmdErr);
+      return res.status(500).json({ success: false, error: cmdErr.message });
+    }
+
+    res.json({
+      success: true,
+      comandaId,
+      comanda: comanda ? {
+        id: comanda.id,
+        ticketNumber: comanda.ticket_number,
+        totalValue: comanda.total_value,
+        clientName: comanda.client_name,
+        status: comanda.status,
+      } : null,
+      counts: {
+        financialRecords: financialRecords || 0,
+      },
+    });
+  } catch (err: any) {
+    console.error(`[Cascade Preview] Erro inesperado:`, err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── ENDPOINT DIAGNÓSTICO: mostra o que está no DB ──────────────────────────
+// Útil para debug quando o cleanup não encontra os registros esperados
+app.get("/api/debug-financials", async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { salonId } = req.query;
+    let query = supabase
+      .from("financials")
+      .select("id, description, related_comanda_id, category, amount, salon_id");
+    if (salonId) {
+      query = query.eq("salon_id", salonId);
+    }
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true, total: data?.length || 0, records: data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Força a deleção de registros financeiros via REST API direta do Supabase
+// (contorna possíveis problemas com o client JS do Supabase)
+async function forceDeleteFinancials(ids: string[]): Promise<{ deleted: number; errors: string[] }> {
+  const errors: string[] = [];
+  let totalDeleted = 0;
+  const supabase = getSupabase();
+  const uniqueIds = [...new Set(ids)];
+
+  for (const fid of uniqueIds) {
+    try {
+      // Tenta delete via API de administração: supabase.rpc()
+      // Se falhar, tenta via REST com método POST e header X-HTTP-Method-Override: DELETE
+      // Como último recurso, usa o client JS em modo admin
+      
+      // Opção A: delete usando o .eq na coluna 'id' (forma padrão)
+      const { data: before } = await supabase
+        .from("financials")
+        .select("id")
+        .eq("id", fid)
+        .maybeSingle();
+
+      if (!before) {
+        errors.push(`Registro ${fid} não encontrado (já foi deletado?)`);
+        continue;
+      }
+
+      // Tenta o delete de duas formas: primeiro o método mais simples
+      const { error: delErr } = await supabase
+        .from("financials")
+        .delete()
+        .eq("id", fid);
+      
+      if (delErr) {
+        errors.push(`Erro JS client para ${fid}: ${delErr.message}`);
+        continue;
+      }
+
+      // Verifica pós-delete
+      const { data: after } = await supabase
+        .from("financials")
+        .select("id")
+        .eq("id", fid)
+        .maybeSingle();
+
+      if (!after) {
+        totalDeleted++;
+      } else {
+        // O JS client diz OK mas não deletou - isso sugere RLS ou chave errada
+        errors.push(`DELETE não removeu ${fid} (provável RLS ou permissão). Tentando força bruta...`);
+        
+        // Tenta com raw query via REST API usando o header Prefer correto
+        const supabaseUrl = process.env.SUPABASE_URL || "";
+        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+        
+        const bruteRes = await fetch(
+          `${supabaseUrl}/rest/v1/financials?id=eq.${encodeURIComponent(fid)}`,
+          {
+            method: "DELETE",
+            headers: {
+              "apikey": serviceKey,
+              "Authorization": `Bearer ${serviceKey}`,
+              "Content-Type": "application/json",
+              "Prefer": "return=representation,count=exact",
+            },
+          }
+        );
+        
+        const bruteBody = await bruteRes.text();
+        
+        if (bruteRes.ok) {
+          const { data: afterBrute } = await supabase
+            .from("financials")
+            .select("id")
+            .eq("id", fid)
+            .maybeSingle();
+          
+          if (!afterBrute) {
+            totalDeleted++;
+          } else {
+            errors.push(`Força bruta falhou para ${fid}. HTTP ${bruteRes.status}. Body: "${bruteBody.substring(0, 100)}"`);
+            
+            // Último recurso: tenta upsert com dados vazios para forçar remoção
+            const { error: upsertErr } = await supabase
+              .from("financials")
+              .upsert({ id: fid, amount: 0, description: "__TO_BE_DELETED__", type: "despesa", category: "__DUMMY__", date: "2000-01-01", salon_id: "__dummy__", related_comanda_id: null })
+              .eq("id", fid);
+              
+            if (upsertErr) {
+              errors.push(`Upsert também falhou: ${upsertErr.message}`);
+            } else {
+              // Agora tenta deletar denovo
+              const { error: del2Err } = await supabase
+                .from("financials")
+                .delete()
+                .eq("id", fid);
+              
+              if (del2Err) {
+                errors.push(`Delete pós-upsert falhou: ${del2Err.message}`);
+              } else {
+                const { data: after2 } = await supabase
+                  .from("financials")
+                  .select("id")
+                  .eq("id", fid)
+                  .maybeSingle();
+                if (!after2) {
+                  totalDeleted++;
+                } else {
+                  errors.push(`Registro ${fid} impossível de deletar (persiste mesmo após upsert+delete)`);
+                }
+              }
+            }
+          }
+        } else {
+          errors.push(`Força bruta HTTP ${bruteRes.status} para ${fid}: ${bruteBody.substring(0, 100)}`);
+        }
+      }
+    } catch (err: any) {
+      errors.push(`Erro ao processar ${fid}: ${err.message}`);
+    }
+  }
+  return { deleted: totalDeleted, errors };
+}
+
+// Limpa registros financeiros órfãos:
+// 1) related_comanda_id NOT NULL cuja comanda não existe mais
+// 2) Descrição contendo "CMD-0001" ou "CMD-0003" (comanda removida fisicamente)
+// Retorna purgeLocalCache: true para o front-end limpar o estado local antes do auto-sync.
+app.post("/api/cleanup-orphan-financials", express.json(), async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { salonId, dryRun } = req.body || {};
+    const log = (msg: string) => console.log(`[Cleanup] ${msg}`);
+
+    // ─── BUSCA COMANDAS ATIVAS ──────────────────────────────────────────
+    let comandaQuery = supabase.from("comandas").select("id");
+    if (salonId) comandaQuery = comandaQuery.eq("salon_id", salonId);
+    const { data: existingComandas, error: comErr } = await comandaQuery;
+    if (comErr) return res.status(500).json({ success: false, error: comErr.message });
+    const existingIds = (existingComandas || []).map((c: any) => c.id);
+    log(`Comandas ativas no banco: ${existingIds.length}`);
+
+    const deletedIds: string[] = [];
+    const errors: string[] = [];
+    const results: any = { fkDeleted: 0, cmd0001Deleted: 0, cmd0003Deleted: 0 };
+
+    // ─── ESTRATÉGIA 1: DELETE DIRETO POR FK AUSENTE ────────────────────
+    // Equivalente SQL: DELETE FROM financials
+    //   WHERE related_comanda_id IS NOT NULL
+    //   AND related_comanda_id NOT IN (SELECT id FROM comandas)
+    if (!dryRun) {
+      let fkQuery = supabase
+        .from("financials")
+        .delete()
+        .not("related_comanda_id", "is", null);
+      if (existingIds.length > 0) {
+        fkQuery = fkQuery.filter("related_comanda_id", "not.in", `(${existingIds.join(",")})`);
+      }
+      if (salonId) fkQuery = fkQuery.eq("salon_id", salonId);
+
+      const { data: fkData, error: fkErr } = await fkQuery.select();
+      if (fkErr) {
+        errors.push(`FK delete error: ${fkErr.message}`);
+        log(`FK delete ERRO: ${fkErr.message}`);
+      } else {
+        results.fkDeleted = fkData?.length || 0;
+        if (fkData) deletedIds.push(...fkData.map((f: any) => f.id));
+        log(`FK delete: ${results.fkDeleted} registro(s) removido(s)`);
+      }
+
+      // ─── ESTRATÉGIA 2: DELETE POR DESCRIÇÃO CMD-0001 e CMD-0003 ──────
+      // Remove lançamentos cuja descrição referencia comandas físicas já excluídas
+      for (const cmd of ["CMD-0001", "CMD-0003"]) {
+        let descQuery = supabase
+          .from("financials")
+          .delete()
+          .ilike("description", `%${cmd}%`);
+        if (salonId) descQuery = descQuery.eq("salon_id", salonId);
+
+        const { data: descData, error: descErr } = await descQuery.select();
+        if (descErr) {
+          errors.push(`ILIKE ${cmd} error: ${descErr.message}`);
+          log(`ILIKE ${cmd} ERRO: ${descErr.message}`);
+        } else {
+          const count = descData?.length || 0;
+          if (cmd === "CMD-0001") results.cmd0001Deleted = count;
+          else results.cmd0003Deleted = count;
+          if (descData) deletedIds.push(...descData.map((f: any) => f.id));
+          log(`ILIKE ${cmd}: ${count} registro(s) removido(s)`);
+        }
+      }
+    } else {
+      // Dry-run: conta o que seria deletado via estratégia 1
+      let countQuery = supabase
+        .from("financials")
+        .select("id", { count: "exact", head: true })
+        .not("related_comanda_id", "is", null);
+      if (existingIds.length > 0) {
+        countQuery = countQuery.filter("related_comanda_id", "not.in", `(${existingIds.join(",")})`);
+      }
+      if (salonId) countQuery = countQuery.eq("salon_id", salonId);
+      const { count: fkCount, error: countErr } = await countQuery;
+      if (!countErr) results.fkDeleted = fkCount || 0;
+
+      // Dry-run: conta os CMD-0001 e CMD-0003
+      for (const cmd of ["CMD-0001", "CMD-0003"]) {
+        let cq = supabase
+          .from("financials")
+          .select("id", { count: "exact", head: true })
+          .ilike("description", `%${cmd}%`);
+        if (salonId) cq = cq.eq("salon_id", salonId);
+        const { count } = await cq;
+        if (cmd === "CMD-0001") results.cmd0001Deleted = count || 0;
+        else results.cmd0003Deleted = count || 0;
+      }
+    }
+
+    // ─── MONTA RESPOSTA ────────────────────────────────────────────────
+    const totalCleaned = results.fkDeleted + results.cmd0001Deleted + results.cmd0003Deleted;
+
+    if (dryRun) {
+      log(`[DRY RUN] ${totalCleaned} registro(s) seriam deletados.`);
+      return res.json({
+        success: true,
+        cleaned: 0,
+        dryRun: true,
+        wouldDelete: totalCleaned,
+        results,
+        message: `[DRY RUN] ${totalCleaned} registro(s) seriam deletados. Envie dryRun: false para executar.`,
+      });
+    }
+
+    if (totalCleaned === 0 && errors.length === 0) {
+      log("Nenhum registro órfão encontrado.");
+      return res.json({
+        success: true,
+        cleaned: 0,
+        results,
+        purgeLocalCache: false,
+        message: "Nenhum registro financeiro órfão encontrado.",
+      });
+    }
+
+    log(`Total: ${totalCleaned} registro(s) removido(s). Erros: ${errors.length}`);
+    res.json({
+      success: errors.length === 0,
+      cleaned: totalCleaned,
+      results,
+      errors: errors.length > 0 ? errors : undefined,
+      deletedIds,
+      purgeLocalCache: totalCleaned > 0,
+      message: errors.length === 0
+        ? `${totalCleaned} registro(s) financeiro(s) órfão(s) removidos com sucesso.`
+        : `${totalCleaned} registro(s) removidos, ${errors.length} erro(s): ${errors.join("; ")}`,
+    });
+  } catch (err: any) {
+    console.error(`[Cleanup] Erro inesperado:`, err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

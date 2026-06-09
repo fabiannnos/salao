@@ -65,6 +65,7 @@ export default function SaaSManagerDashboard({
   const [formName, setFormName] = useState('');
   const [formCNPJ, setFormCNPJ] = useState('');
   const [formPhone, setFormPhone] = useState('');
+  const [formEmail, setFormEmail] = useState('');
   const [formCity, setFormCity] = useState('');
   const [formAddress, setFormAddress] = useState('');
   const [formPassword, setFormPassword] = useState('1234');
@@ -77,6 +78,7 @@ export default function SaaSManagerDashboard({
   });
   const [formIsActive, setFormIsActive] = useState(true);
   const [formLogoUrl, setFormLogoUrl] = useState('');
+  const [formPlanValue, setFormPlanValue] = useState('120');
   
   const [formBairro, setFormBairro] = useState('');
   const [formEstado, setFormEstado] = useState('');
@@ -166,6 +168,7 @@ export default function SaaSManagerDashboard({
     setFormName('');
     setFormCNPJ('');
     setFormPhone('');
+    setFormEmail('');
     setFormCity('São Paulo');
     setFormAddress('');
     setFormBairro('');
@@ -181,6 +184,7 @@ export default function SaaSManagerDashboard({
     setFormExpiration(d.toISOString().split('T')[0]);
     setFormIsActive(true);
     setFormLogoUrl('');
+    setFormPlanValue('120');
     setEditingSalonId(null);
   };
 
@@ -190,6 +194,7 @@ export default function SaaSManagerDashboard({
     setFormName(salon.name);
     setFormCNPJ(formatCNPJ(salon.cnpj));
     setFormPhone(salon.phone);
+    setFormEmail(salon.email || '');
     setFormCity(salon.city || 'São Paulo');
     setFormAddress(salon.address || '');
     setFormBairro(salon.bairro || '');
@@ -203,6 +208,7 @@ export default function SaaSManagerDashboard({
     setFormExpiration(salon.expirationDate || new Date().toISOString().split('T')[0]);
     setFormIsActive(salon.isActive !== false);
     setFormLogoUrl(salon.logoUrl || '');
+    setFormPlanValue((salon.planValue ?? 120).toString());
     setSaasTab('criar');
   };
 
@@ -245,6 +251,7 @@ export default function SaaSManagerDashboard({
         name: formName,
         cnpj: formCNPJ,
         phone: formPhone,
+        email: formEmail,
         city: formCity,
         address: formAddress,
         bairro: formBairro,
@@ -257,7 +264,8 @@ export default function SaaSManagerDashboard({
         maxAdmins: parseInt(formMaxAdmins) || 2,
         expirationDate: formExpiration,
         isActive: formIsActive,
-        logoUrl: formLogoUrl
+        logoUrl: formLogoUrl,
+        planValue: parseFloat(formPlanValue) || 120
       };
       
       onUpdateSalon(updated);
@@ -279,6 +287,7 @@ export default function SaaSManagerDashboard({
         name: formName,
         cnpj: formCNPJ,
         phone: formPhone,
+        email: formEmail,
         city: formCity,
         address: formAddress,
         bairro: formBairro,
@@ -291,7 +300,8 @@ export default function SaaSManagerDashboard({
         maxAdmins: parseInt(formMaxAdmins) || 2,
         expirationDate: formExpiration,
         isActive: formIsActive,
-        logoUrl: formLogoUrl
+        logoUrl: formLogoUrl,
+        planValue: parseFloat(formPlanValue) || 120
       };
 
       onAddSalon(newSalon);
@@ -1297,6 +1307,17 @@ _Nota: Guarde seus dados em local seguro e confidencial. Suporte SaaS Modello._`
                 </div>
 
                 <div>
+                  <label className="block text-stone-450 font-bold mb-1 uppercase tracking-wider">E-mail Financeiro</label>
+                  <input
+                    type="email"
+                    placeholder="ex: financeiro@modellosalon.com.br"
+                    className="w-full p-2.5 bg-[#FDFBF7] rounded-lg border border-stone-250 focus:border-gold-500 focus:outline-none text-xs text-stone-850"
+                    value={formEmail}
+                    onChange={(e) => setFormEmail(e.target.value)}
+                  />
+                </div>
+
+                <div>
                   <label className="block text-stone-450 font-bold mb-1 uppercase tracking-wider">Senha Secreta Mestre Admin</label>
                   <div className="relative">
                     <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 w-4 h-4" />
@@ -1307,6 +1328,21 @@ _Nota: Guarde seus dados em local seguro e confidencial. Suporte SaaS Modello._`
                       className="w-full pl-9 pr-4 py-2.5 bg-[#FDFBF7] rounded-lg border border-stone-250 focus:border-gold-500 focus:outline-none text-xs font-mono font-bold text-stone-900"
                       value={formPassword}
                       onChange={(e) => setFormPassword(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-stone-450 font-bold mb-1 uppercase tracking-wider">Valor do Plano Mensal (R$)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      step="0.01"
+                      required
+                      className="w-full p-2.5 bg-[#FDFBF7] rounded-lg border border-stone-250 focus:border-gold-500 focus:outline-none font-bold text-stone-900 font-mono text-center text-xs"
+                      value={formPlanValue}
+                      onChange={(e) => setFormPlanValue(e.target.value)}
                     />
                   </div>
                 </div>

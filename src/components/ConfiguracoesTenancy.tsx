@@ -52,6 +52,7 @@ export default function ConfiguracoesTenancy({
   const [salonPass, setSalonPass] = useState('1234');
   const [salonAddress, setSalonAddress] = useState('');
   const [salonMaxProfs, setSalonMaxProfs] = useState('5');
+  const [salonPlanValue, setSalonPlanValue] = useState('120');
 
   const [chartName, setChartName] = useState('');
   const [chartType, setChartType] = useState<'receita' | 'despesa'>('despesa');
@@ -233,7 +234,8 @@ export default function ConfiguracoesTenancy({
       address: salonAddress || 'Endereço Corporativo Demo',
       password: salonPass,
       city: 'São Paulo',
-      maxProfessionals: parseInt(salonMaxProfs) || 5
+      maxProfessionals: parseInt(salonMaxProfs) || 5,
+      planValue: parseFloat(salonPlanValue) || 120
     };
 
     onAddSalon(newSalon);
@@ -350,6 +352,18 @@ export default function ConfiguracoesTenancy({
                     className="w-full bg-[#FCF9F2] p-2.5 rounded-lg border border-stone-250 focus:border-gold-500 focus:outline-none font-mono font-bold"
                     value={salonMaxProfs}
                     onChange={(e) => setSalonMaxProfs(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-stone-400 font-bold mb-1 uppercase tracking-wider">Valor do Plano (R$)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    required
+                    className="w-full bg-[#FCF9F2] p-2.5 rounded-lg border border-stone-250 focus:border-gold-500 focus:outline-none font-mono font-bold"
+                    value={salonPlanValue}
+                    onChange={(e) => setSalonPlanValue(e.target.value)}
                   />
                 </div>
               </div>
@@ -523,7 +537,7 @@ export default function ConfiguracoesTenancy({
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 text-stone-750 border-t border-stone-100 text-[10.5px] font-sans">
                       <div>
                         <span className="text-stone-400 text-[8.5px] uppercase font-bold block">Valor do Plano</span>
-                        <strong className="text-stone-900">R$ 120,00 <span className="text-[9px] font-normal text-stone-500">/mês</span></strong>
+                        <strong className="text-stone-900">R$ {((currentSalon?.planValue ?? 120)).toFixed(2).replace('.', ',')} <span className="text-[9px] font-normal text-stone-500">/mês</span></strong>
                       </div>
                       <div>
                         <span className="text-stone-400 text-[8.5px] uppercase font-bold block">Próximo Vencimento</span>
@@ -555,7 +569,7 @@ export default function ConfiguracoesTenancy({
                         }`}
                       >
                         <CreditCard className="w-4 h-4 text-stone-100" />
-                        <span>Renovar Assinatura (R$ 120,00)</span>
+                        <span>Renovar Assinatura (R$ {((currentSalon?.planValue ?? 120)).toFixed(2).replace('.', ',')})</span>
                       </button>
                       <p className="text-[8.5px] text-stone-400 mt-1.5 leading-relaxed font-sans">
                         Ao clicar, você iniciará uma sessão de pagamento seguro online. Pagamento efetuado antes do vencimento soma +1 mês na data limite. Pagamentos atrasados liberam o sistema com vencimento para 30 dias subsequentes.
@@ -698,6 +712,27 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_admins integer DEFAULT 3;`}
                           }
                         }}
                       />
+                    </div>
+
+                    <div>
+                      <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
+                        E-mail Financeiro
+                      </label>
+                      <input
+                        type="email"
+                        placeholder="ex: financeiro@modellosalon.com.br"
+                        className="w-full bg-white border border-stone-250 p-2 py-1.5 rounded-lg text-xs focus:outline-none focus:border-stone-400 text-stone-900"
+                        value={currentSalon.email || ''}
+                        onChange={(e) => {
+                          if (onUpdateSalon) {
+                            onUpdateSalon({
+                              ...currentSalon,
+                              email: e.target.value
+                            });
+                          }
+                        }}
+                      />
+                      <p className="text-[9px] text-stone-450 mt-1">Usado para envio de cobranças e faturas do Asaas.</p>
                     </div>
 
                     <div>

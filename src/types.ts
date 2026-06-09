@@ -3,6 +3,8 @@ export interface Salon {
   name: string;
   cnpj: string;
   phone: string;
+  email?: string;
+  asaasCustomerId?: string;
   password?: string;
   city: string;
   address?: string;
@@ -11,12 +13,13 @@ export interface Salon {
   cep?: string;
   numero?: string;
   complemento?: string;
-  maxProfessionals?: number; // capacity limit of active professionals set by SaaS owner
-  maxAdmins?: number; // capacity limit of active administrators set by SaaS owner
-  expirationDate?: string; // YYYY-MM-DD expiration of the license
-  isActive?: boolean; // active/blocked status of the client/tenant
-  cardFeePercentProfDeduct?: number; // percentage of card fees deducted from professional's commission (e.g. 0 to 100)
-  logoUrl?: string; // custom logo URL for the salon/tenant
+  maxProfessionals?: number;
+  maxAdmins?: number;
+  expirationDate?: string;
+  isActive?: boolean;
+  cardFeePercentProfDeduct?: number;
+  logoUrl?: string;
+  planValue?: number;
 }
 
 // Configuração de PIX por tenant — vive EXCLUSIVAMENTE na tabela

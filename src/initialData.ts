@@ -6,12 +6,14 @@ export const initialSalons: Salon[] = [
     name: "Modello Salon",
     cnpj: "12.345.678/0001-90",
     phone: "(11) 99999-9999",
+    email: "financeiro@modellosalon.com.br",
     password: "1234",
     city: "São Paulo",
     maxProfessionals: 5,
     maxAdmins: 2,
     expirationDate: "2026-12-31",
-    isActive: true
+    isActive: true,
+    planValue: 120
   }
 ];
 

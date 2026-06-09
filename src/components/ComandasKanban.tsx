@@ -2479,11 +2479,6 @@ export default function ComandasKanban({
                 type="button"
                 onClick={() => {
                   onDeleteComanda(comandaToDelete.id);
-                  if (comandaToDelete.status === 'Concluido') {
-                    triggerToast(`Comanda ${comandaToDelete.ticketNumber} excluída e faturamento estornado!`);
-                  } else {
-                    triggerToast(`Comanda ${comandaToDelete.ticketNumber} excluída.`);
-                  }
                   setComandaToDelete(null);
                 }}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shadow-sm hover:shadow active:scale-98 focus:outline-none cursor-pointer text-center"
