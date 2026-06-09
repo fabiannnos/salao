@@ -1059,27 +1059,38 @@ export default function App() {
     triggerUpdateSalons(updated);
   };
 
-  const handleUpdateSalonObj = (updatedSalon: Salon) => {
+  const handleUpdateSalonObj = async (updatedSalon: Salon) => {
+    // 1. PRIMEIRO persiste campos de billing no servidor via endpoint dedicado
+    //    (auto-sync NÃO sobrescreve billing fields no Supabase, então precisamos
+    //     garantir que o banco já tenha os novos valores ANTES do sync)
+    try {
+      const billingResp = await fetch("/api/update-tenant-billing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: updatedSalon.id,
+          expirationDate: updatedSalon.expirationDate,
+          planValue: updatedSalon.planValue,
+          isActive: updatedSalon.isActive,
+          cardFeePercentProfDeduct: updatedSalon.cardFeePercentProfDeduct,
+        })
+      });
+      const billingData = await billingResp.json();
+      if (!billingData.success) {
+        console.error("[Update Billing] Falha ao persistir:", billingData.error);
+      }
+    } catch (err) {
+      console.error("[Update Billing] Erro de rede ao persistir:", err);
+    }
+
+    // 2. DEPOIS atualiza estado local (React + localStorage) e dispara auto-sync
+    //    O auto-sync agora vai ler do banco que já tem os valores atualizados
     const updated = salons.map(s => s.id === updatedSalon.id ? updatedSalon : s);
     triggerUpdateSalons(updated);
     if (currentSalon && currentSalon.id === updatedSalon.id) {
       setCurrentSalon(updatedSalon);
     }
     performAutoSync(true);
-
-    // Persiste campos de billing no servidor via endpoint dedicado
-    // (auto-sync não sobrescreve billing fields no Supabase)
-    fetch("/api/update-tenant-billing", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tenantId: updatedSalon.id,
-        expirationDate: updatedSalon.expirationDate,
-        planValue: updatedSalon.planValue,
-        isActive: updatedSalon.isActive,
-        cardFeePercentProfDeduct: updatedSalon.cardFeePercentProfDeduct,
-      })
-    }).catch(err => console.error("[Update Billing] Erro ao persistir:", err));
   };
 
   const handleAddNewChartGroupObj = (group: ChartAccountGroup) => {
