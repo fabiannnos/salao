@@ -15,19 +15,18 @@ async function registerSW() {
 
       newSW.addEventListener("statechange", () => {
         if (newSW.state === "installed" && navigator.serviceWorker.controller) {
-          if (reg.waiting) {
-            reg.waiting.postMessage({ type: "SKIP_WAITING" });
+          if (confirm("Nova versão disponível. Atualizar agora?")) {
+            reg.waiting?.postMessage({ type: "SKIP_WAITING" });
           }
         }
       });
     });
 
-    let refreshing = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (refreshing) return;
-      refreshing = true;
       window.location.reload();
-    });
+    }, { once: true });
+
+    setInterval(() => reg.update(), 60 * 60 * 1000);
   } catch (err) {
     console.warn("[SW] Falha ao registrar service worker:", err);
   }

@@ -1,22 +1,8 @@
-const CACHE = "gestao-modello-v1.0.4";
-const ASSETS = [
-  "/",
-  "/manifest.webmanifest",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-];
+const CACHE = `gestao-modello-${__SW_VERSION__}`;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) =>
-      Promise.allSettled(
-        ASSETS.map((url) =>
-          fetch(url)
-            .then((res) => { if (res.ok) cache.put(url, res); })
-            .catch(() => {})
-        )
-      )
-    ).then(() => self.skipWaiting())
+    caches.open(CACHE).then(() => self.skipWaiting())
   );
 });
 
@@ -48,7 +34,13 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(cacheFirst(request));
+  const isNavigation = request.mode === "navigate" || request.destination === "document";
+
+  if (isNavigation) {
+    event.respondWith(networkFirstHTML(request));
+  } else {
+    event.respondWith(cacheFirst(request));
+  }
 });
 
 async function cacheFirst(request) {
@@ -77,5 +69,20 @@ async function networkFirst(request) {
   } catch {
     const cached = await caches.match(request);
     return cached || new Response("Offline", { status: 503 });
+  }
+}
+
+async function networkFirstHTML(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const clone = response.clone();
+      caches.open(CACHE).then((cache) => cache.put(request, clone));
+    }
+    return response;
+  } catch {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    return new Response("Offline", { status: 503 });
   }
 }
