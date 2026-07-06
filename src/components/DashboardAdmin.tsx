@@ -246,7 +246,7 @@ export default function DashboardAdmin({
         <div>
           <h2 className="text-xl font-serif font-bold text-gray-950 flex items-center gap-2">
             <PiggyBank className="w-5 h-5 text-gold-500" />
-            <span>Dashboard Administrativo</span>
+            <span>Dashboard</span>
           </h2>
           <p className="text-xs text-stone-500 mt-1">Visão geral do faturamento do salão, contas em aberto, serviços e repasses de comissão.</p>
         </div>
