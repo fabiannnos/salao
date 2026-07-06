@@ -520,7 +520,79 @@ export default function ConfiguracoesTenancy({
               {/* Global Salon Config for Fees and split rules */}
               {currentSalon && (
                 <div className="pt-4 border-t border-stone-200 space-y-4">
-                  
+
+                  {/* Company Name and Logo customization section */}
+                  <div className="border-b border-stone-100 pb-2">
+                    <h5 className="font-bold text-stone-900 text-[11px] uppercase tracking-wide flex items-center gap-1.5 flex-sans">
+                      <Building className="w-3.5 h-3.5 text-[#a0854c]" />
+                      <span>Nome da Empresa e Logotipo</span>
+                    </h5>
+                    <p className="text-[9.5px] text-stone-400 flex-sans">Personalize o logotipo e o nome comercial exibido nos cabeçalhos.</p>
+                  </div>
+
+                  <div className="space-y-3.5 p-3.5 bg-[#FAF8F5] rounded-xl border border-stone-250 shadow-2xs">
+                    <div>
+                      <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
+                        Nome Comercial da Empresa
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full bg-white border border-stone-250 p-2 py-1.5 rounded-lg text-xs font-bold focus:outline-none focus:border-stone-400 text-stone-900"
+                        value={currentSalon.name}
+                        onChange={(e) => {
+                          if (onUpdateSalon) {
+                            onUpdateSalon({
+                              ...currentSalon,
+                              name: e.target.value
+                            });
+                          }
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
+                        E-mail Financeiro
+                      </label>
+                      <input
+                        type="email"
+                        placeholder="ex: financeiro@modellosalon.com.br"
+                        className="w-full bg-white border border-stone-250 p-2 py-1.5 rounded-lg text-xs focus:outline-none focus:border-stone-400 text-stone-900"
+                        value={currentSalon.email || ''}
+                        onChange={(e) => {
+                          if (onUpdateSalon) {
+                            onUpdateSalon({
+                              ...currentSalon,
+                              email: e.target.value
+                            });
+                          }
+                        }}
+                      />
+                      <p className="text-[9px] text-stone-450 mt-1">Usado para envio de cobranças e faturas do Asaas.</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
+                        URL do Logotipo do Cliente / Salão
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="ex: https://site.com/logo.png"
+                        className="w-full bg-white border border-stone-250 p-2 py-1.5 rounded-lg text-[10.5px] focus:outline-none focus:border-stone-400 font-mono text-stone-900"
+                        value={currentSalon.logoUrl || ''}
+                        onChange={(e) => {
+                          if (onUpdateSalon) {
+                            onUpdateSalon({
+                              ...currentSalon,
+                              logoUrl: e.target.value
+                            });
+                          }
+                        }}
+                      />
+                      <p className="text-[9px] text-stone-450 mt-1">Insira um link de imagem do logotipo da sua empresa (arquivos .png ou .jpeg).</p>
+                    </div>
+                  </div>
+
                   {/* Stripe Subscription & Billing Management Widget */}
                   <div className="border-b border-stone-100 pb-2">
                     <h5 className="font-bold text-stone-900 text-[11px] uppercase tracking-wide flex items-center gap-1.5">
@@ -775,79 +847,6 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_admins integer DEFAULT 3;`}
                       </div>
                     )}
                   </div>
-
-                  {/* Company Name and Logo customization section */}
-                  <div className="border-b border-stone-100 pb-2">
-                    <h5 className="font-bold text-stone-900 text-[11px] uppercase tracking-wide flex items-center gap-1.5 flex-sans">
-                      <Building className="w-3.5 h-3.5 text-[#a0854c]" />
-                      <span>Nome da Empresa e Logotipo</span>
-                    </h5>
-                    <p className="text-[9.5px] text-stone-400 flex-sans">Personalize o logotipo e o nome comercial exibido nos cabeçalhos.</p>
-                  </div>
-
-                  <div className="space-y-3.5 p-3.5 bg-[#FAF8F5] rounded-xl border border-stone-250 shadow-2xs">
-                    <div>
-                      <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
-                        Nome Comercial da Empresa
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full bg-white border border-stone-250 p-2 py-1.5 rounded-lg text-xs font-bold focus:outline-none focus:border-stone-400 text-stone-900"
-                        value={currentSalon.name}
-                        onChange={(e) => {
-                          if (onUpdateSalon) {
-                            onUpdateSalon({
-                              ...currentSalon,
-                              name: e.target.value
-                            });
-                          }
-                        }}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
-                        E-mail Financeiro
-                      </label>
-                      <input
-                        type="email"
-                        placeholder="ex: financeiro@modellosalon.com.br"
-                        className="w-full bg-white border border-stone-250 p-2 py-1.5 rounded-lg text-xs focus:outline-none focus:border-stone-400 text-stone-900"
-                        value={currentSalon.email || ''}
-                        onChange={(e) => {
-                          if (onUpdateSalon) {
-                            onUpdateSalon({
-                              ...currentSalon,
-                              email: e.target.value
-                            });
-                          }
-                        }}
-                      />
-                      <p className="text-[9px] text-stone-450 mt-1">Usado para envio de cobranças e faturas do Asaas.</p>
-                    </div>
-
-                    <div>
-                      <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
-                        URL do Logotipo do Cliente / Salão
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="ex: https://site.com/logo.png"
-                        className="w-full bg-white border border-stone-250 p-2 py-1.5 rounded-lg text-[10.5px] focus:outline-none focus:border-stone-400 font-mono text-stone-900"
-                        value={currentSalon.logoUrl || ''}
-                        onChange={(e) => {
-                          if (onUpdateSalon) {
-                            onUpdateSalon({
-                              ...currentSalon,
-                              logoUrl: e.target.value
-                            });
-                          }
-                        }}
-                      />
-                      <p className="text-[9px] text-stone-450 mt-1">Insira um link de imagem do logotipo da sua empresa (arquivos .png ou .jpeg).</p>
-                    </div>
-                  </div>
-
 
                 </div>
               )}
