@@ -157,7 +157,13 @@ app.post("/api/tenant-pix-config", express.json(), async (req, res) => {
 function getMercadoPagoClient(): MercadoPagoConfig | null {
   const token = process.env.MERCADO_PAGO_ACCESS_TOKEN;
   if (!token) return null;
-  return new MercadoPagoConfig({ accessToken: token });
+  const trimmed = token.trim();
+  const isTest = trimmed.startsWith("TEST-");
+  console.log(`[Mercado Pago] Inicializando cliente (${isTest ? "SANDBOX" : "PRODUÇÃO"})`);
+  return new MercadoPagoConfig({
+    accessToken: trimmed,
+    options: { testToken: isTest },
+  });
 }
 
 function sanitizeCpfCnpj(raw: string): string {
@@ -265,6 +271,7 @@ app.post("/api/checkout/create-pix", express.json(), async (req, res) => {
     }
 
     // 2. Create PIX payment via Mercado Pago
+    const tenantName = salonData.name || "Gestão Modello";
     const planValue = salonData.plan_value !== undefined ? salonData.plan_value : 120.00;
     const payerEmail = salonData.email || `financeiro@${salonId}.com.br`;
 
@@ -277,7 +284,11 @@ app.post("/api/checkout/create-pix", express.json(), async (req, res) => {
         payment_method_id: "pix",
         payer: { email: payerEmail },
         external_reference: salonId,
-        description: "Assinatura Gestão Modello - 30 dias",
+        description: `Renovação de Assinatura - Salão: ${tenantName}`,
+        metadata: {
+          tenant_id: salonId,
+          tenant_email: payerEmail,
+        },
       },
     });
 

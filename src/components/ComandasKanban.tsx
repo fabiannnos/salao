@@ -613,6 +613,7 @@ export default function ComandasKanban({
         services: finalServices,
         products: finalProducts,
         totalValue: totalVal,
+        dateCreated: editDateCreated || orig.dateCreated,
         isFiado: isFiado,
         status: forceStatus,
         paymentMethod: finalMethod,
@@ -654,7 +655,7 @@ export default function ComandasKanban({
         products: finalProducts,
         totalValue: totalVal,
         status: forceStatus,
-        dateCreated: new Date().toISOString().substring(0, 16),
+        dateCreated: editDateCreated || new Date().toISOString().substring(0, 16),
         isFiado: isFiado,
         paymentMethod: finalMethod,
         paymentDate: forceStatus === 'Concluido' ? new Date().toISOString().split('T')[0] : undefined,
@@ -930,6 +931,8 @@ export default function ComandasKanban({
               setActiveCategory('Todos');
               setPaymentMethodSelected('Pix');
               setIsFiado(false);
+              setEditDateCreated(new Date().toISOString().substring(0, 16));
+              setEditPaymentDate('');
 
               setSelectedBrand('Visa');
               setSelectedInstallments(1);
@@ -2357,10 +2360,11 @@ export default function ComandasKanban({
                   </div>
                 </div>
 
-                {/* Date overrides in edit mode */}
-                {editingComandaId && (
+                {/* Date overrides (visible in both create and edit) */}
                   <div className="bg-stone-900 border border-stone-850 rounded-xl p-4 space-y-3 mt-4">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-[#eed093]">Ajustar Datas do Registro</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-[#eed093]">
+                      {editingComandaId ? "Ajustar Datas do Registro" : "Data da Comanda"}
+                    </label>
                     
                     <div className="space-y-1">
                       <span className="text-[9px] text-stone-400 block font-mono">Abertura / Lançamento:</span>
@@ -2382,7 +2386,6 @@ export default function ComandasKanban({
                       />
                     </div>
                   </div>
-                )}
 
               </div>
 

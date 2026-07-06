@@ -757,191 +757,7 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_admins integer DEFAULT 3;`}
                     </div>
                   </div>
 
-                  <div className="border-b border-stone-100 pb-2 pt-2">
-                    <h5 className="font-bold text-stone-900 text-[11px] uppercase tracking-wide flex items-center gap-1.5">
-                      <Settings className="w-3.5 h-3.5 text-[#a0854c]" />
-                      <span>Regras de Negócio do Salão (Geral)</span>
-                    </h5>
-                    <p className="text-[9.5px] text-stone-400">Automatize as regras financeiras padrões para todas as comandas.</p>
-                  </div>
 
-                  <div className="space-y-3.5 p-3.5 bg-[#FAF8F5] rounded-xl border border-stone-205/70 shadow-2xs">
-                    <div>
-                      <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
-                        Repasse da Taxa de Cartão p/ Comissão
-                      </label>
-                      <p className="text-[9.5px] text-stone-500 leading-relaxed mb-3">
-                        Escolha o padrão geral de como as taxas de transação das operadoras de cartão de débito/crédito devem ser descontadas da comissão paga aos profissionais.
-                      </p>
-                      
-                      <select
-                        className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400 cursor-pointer"
-                        value={currentSalon.cardFeePercentProfDeduct !== undefined ? currentSalon.cardFeePercentProfDeduct : 0}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          if (onUpdateSalon) {
-                            onUpdateSalon({
-                              ...currentSalon,
-                              cardFeePercentProfDeduct: val
-                            });
-                          }
-                        }}
-                      >
-                        <option value={0}>0% — Salão absorve 100% da taxa (Não repassar aos colaboradores)</option>
-                        <option value={50}>50% — Dividir meio a meio (50% Profissional / 50% Salão)</option>
-                        <option value={100}>100% — Repassar taxa completa de cartão para o profissional</option>
-                      </select>
-                    </div>
-
-                    <div className="text-[9.5px] text-stone-300 bg-stone-900 p-3 rounded-lg font-mono flex items-center gap-1.5 leading-snug">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                      <span>
-                        Automático Ativo: Rateio de taxa fixado em <strong className="text-[#eed093]">{currentSalon.cardFeePercentProfDeduct !== undefined ? currentSalon.cardFeePercentProfDeduct : 0}%</strong> de desconto na comissão profissional.
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* PIX Configuration */}
-                  <div className="border-b border-stone-100 pb-2 pt-6">
-                    <h5 className="font-bold text-stone-900 text-[11px] uppercase tracking-wide flex items-center gap-1.5">
-                      <CreditCard className="w-3.5 h-3.5 text-[#a0854c]" />
-                      <span>PIX</span>
-                    </h5>
-                    <p className="text-[9.5px] text-stone-400">Configure a chave PIX para recebimento automático nas comandas.</p>
-                  </div>
-
-                  <div className="space-y-3.5 p-3.5 bg-[#FAF8F5] rounded-xl border border-stone-205/70 shadow-2xs">
-                    <div>
-                      <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
-                        Tipo da Chave PIX
-                      </label>
-                      <select
-                        className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400 cursor-pointer"
-                        value={localPixKeyType}
-                        onChange={(e) => setLocalPixKeyType(e.target.value as PixKeyType | '')}
-                        disabled={pixLoading || pixSaving}
-                      >
-                        <option value="">Selecione o tipo de chave</option>
-                        <option value="telefone">Telefone</option>
-                        <option value="cnpj">CNPJ</option>
-                        <option value="email">E-mail</option>
-                        <option value="aleatoria">Chave Aleatória</option>
-                      </select>
-                    </div>
-
-                    {localPixKeyType === 'telefone' && (
-                      <div>
-                        <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
-                          Chave PIX Telefone
-                        </label>
-                        <input
-                          type="text"
-                          className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400"
-                          placeholder="(11) 98888-7777"
-                          value={localPixKey}
-                          onChange={(e) => setLocalPixKey(e.target.value)}
-                          disabled={pixLoading || pixSaving}
-                        />
-                      </div>
-                    )}
-
-                    {localPixKeyType === 'cnpj' && (
-                      <div>
-                        <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
-                          Chave PIX CNPJ
-                        </label>
-                        <input
-                          type="text"
-                          className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400"
-                          placeholder="00.000.000/0001-00"
-                          value={localPixKey}
-                          onChange={(e) => setLocalPixKey(e.target.value)}
-                          disabled={pixLoading || pixSaving}
-                        />
-                      </div>
-                    )}
-
-                    {localPixKeyType === 'email' && (
-                      <div>
-                        <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
-                          Chave PIX E-mail
-                        </label>
-                        <input
-                          type="email"
-                          className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400"
-                          placeholder="financeiro@empresa.com.br"
-                          value={localPixKey}
-                          onChange={(e) => setLocalPixKey(e.target.value)}
-                          disabled={pixLoading || pixSaving}
-                        />
-                      </div>
-                    )}
-
-                    {localPixKeyType === 'aleatoria' && (
-                      <div>
-                        <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
-                          Chave Aleatória
-                        </label>
-                        <input
-                          type="text"
-                          className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400"
-                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                          value={localPixKey}
-                          onChange={(e) => setLocalPixKey(e.target.value)}
-                          disabled={pixLoading || pixSaving}
-                        />
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!currentSalon?.id) return;
-                        if (!localPixKeyType) {
-                          setAlertState({ message: 'Selecione o tipo da chave PIX.', variant: 'error' });
-                          return;
-                        }
-                        if (!localPixKey.trim()) {
-                          setAlertState({ message: 'Informe a chave PIX.', variant: 'error' });
-                          return;
-                        }
-                        setPixSaving(true);
-                        try {
-                          const cfg = await saveTenantPixConfig({
-                            tenant_id: currentSalon.id,
-                            pix_key_type: localPixKeyType as PixKeyType,
-                            pix_key: localPixKey.trim(),
-                          });
-                          setAlertState({
-                            message: `Configuração de PIX salva com sucesso (${cfg.pix_key_type}).`,
-                            variant: 'success',
-                          });
-                        } catch (err: any) {
-                          setAlertState({ message: 'Erro ao salvar PIX: ' + (err?.message || String(err)), variant: 'error' });
-                        } finally {
-                          setPixSaving(false);
-                        }
-                      }}
-                      disabled={pixLoading || pixSaving || !localPixKeyType || !localPixKey.trim() || isRestricted}
-                      title={isRestricted ? "Plano expirado. Renove para voltar a realizar alterações." : undefined}
-                      className="w-full mt-1 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-stone-300 disabled:to-stone-300 disabled:cursor-not-allowed text-white font-extrabold text-[10.5px] uppercase tracking-wider rounded-lg transition-all cursor-pointer"
-                    >
-                      {pixSaving ? 'Salvando...' : 'Salvar Configuração PIX'}
-                    </button>
-
-                    {localPixKeyType && (
-                      <div className="text-[9.5px] text-stone-300 bg-stone-900 p-3 rounded-lg font-mono flex items-center gap-1.5 leading-snug">
-                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${resolvedPixKey ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
-                        <span>
-                          {resolvedPixKey ? (
-                            <>PIX Configurado: <strong className="text-[#eed093]">{pixKeyTypeLabels[localPixKeyType] || localPixKeyType}: {resolvedPixKey}</strong></>
-                          ) : (
-                            <>PIX incompleto — preencha a chave do tipo selecionado</>
-                          )}
-                        </span>
-                      </div>
-                    )}
-                  </div>
                 </div>
               )}
 
@@ -952,80 +768,7 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_admins integer DEFAULT 3;`}
         {/* Right column stacked panels */}
         <div className="space-y-8 w-full">
 
-          {/* Custom Plan Chart of accounts */}
-          <div className="bg-white p-6 rounded-xl border border-gray-200/60 shadow-sm space-y-6">
-            <div className="border-b border-gray-100 pb-3">
-              <h4 className="font-serif font-bold text-gray-900 text-sm">Plano de Contas Customizado (Finanças)</h4>
-              <p className="text-[11px] text-stone-400 mt-0.5">DRE e Balanços de Caixa utilizam categorias do plano de contas para consolidar lucros operacionais.</p>
-            </div>
-
-            <form onSubmit={handleRegisterChart} className="space-y-4">
-              <div>
-                <label className="block text-stone-400 font-bold mb-1 uppercase tracking-wider">Nome da Categoria Financeira</label>
-                <input
-                  type="text"
-                  required
-                  className="w-full bg-[#FCF9F2] p-2.5 rounded-lg border border-stone-250 focus:border-gold-500 focus:outline-none"
-                  placeholder="ex: Conta de Água Copasa"
-                  value={chartName}
-                  onChange={(e) => setChartName(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-stone-400 font-bold mb-1 uppercase tracking-wider">Tipo do Lançamento</label>
-                <div className="flex gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setChartType('despesa')}
-                    className={`flex-1 py-2.5 rounded-lg border font-bold text-center transition-all ${
-                      chartType === 'despesa' 
-                        ? 'bg-rose-50 text-rose-700 border-rose-300' 
-                        : 'bg-white text-stone-500 border-stone-200 font-normal'
-                    }`}
-                  >
-                    Saída / Despesa
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setChartType('receita')}
-                    className={`flex-1 py-2.5 rounded-lg border font-bold text-center transition-all ${
-                      chartType === 'receita' 
-                        ? 'bg-green-50 text-green-700 border-green-300' 
-                        : 'bg-white text-stone-500 border-stone-200 font-normal'
-                    }`}
-                  >
-                    Entrada / Receita
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition-all cursor-pointer"
-              >
-                Adicionar ao Plano de Contas
-              </button>
-            </form>
-
-            {/* List existing charts */}
-            <div className="border-t border-gray-100 pt-5">
-              <h5 className="font-bold text-gray-900 mb-3 font-sans">Categorias Disponíveis</h5>
-              <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                {charts.map(c => (
-                  <div key={c.id} className="p-2.5 bg-stone-50 rounded-lg border border-stone-150 flex justify-between items-center">
-                    <span className="font-medium text-stone-800">{c.name}</span>
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${c.type === 'receita' ? 'bg-green-50 text-green-700' : 'bg-rose-50 text-rose-700'}`}>
-                      {c.type === 'receita' ? 'Receita' : 'Despesa'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-          </div>
-
-          {/* Custom Service Categories Card */}
+          {/* 1. Categorias do Serviço */}
           <div className="bg-white p-6 rounded-xl border border-gray-200/60 shadow-sm space-y-6">
             <div className="border-b border-gray-100 pb-3">
               <h4 className="font-serif font-bold text-gray-900 text-sm">Categorias do Serviço</h4>
@@ -1125,6 +868,269 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_admins integer DEFAULT 3;`}
                     </div>
                   ))
                 )}
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Regras de Negócio do Salão (Geral) */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200/60 shadow-sm space-y-6">
+            <div className="border-b border-gray-100 pb-3">
+              <h4 className="font-serif font-bold text-gray-900 text-sm flex items-center gap-2">
+                <Settings className="w-4 h-4 text-[#a0854c]" />
+                Regras de Negócio do Salão (Geral)
+              </h4>
+              <p className="text-[11px] text-stone-400 mt-0.5">Automatize as regras financeiras padrões para todas as comandas.</p>
+            </div>
+
+            <div className="space-y-3.5 p-3.5 bg-[#FAF8F5] rounded-xl border border-stone-205/70 shadow-2xs">
+              <div>
+                <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
+                  Repasse da Taxa de Cartão p/ Comissão
+                </label>
+                <p className="text-[9.5px] text-stone-500 leading-relaxed mb-3">
+                  Escolha o padrão geral de como as taxas de transação das operadoras de cartão de débito/crédito devem ser descontadas da comissão paga aos profissionais.
+                </p>
+                
+                <select
+                  className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400 cursor-pointer"
+                  value={currentSalon.cardFeePercentProfDeduct !== undefined ? currentSalon.cardFeePercentProfDeduct : 0}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (onUpdateSalon) {
+                      onUpdateSalon({
+                        ...currentSalon,
+                        cardFeePercentProfDeduct: val
+                      });
+                    }
+                  }}
+                >
+                  <option value={0}>0% — Salão absorve 100% da taxa (Não repassar aos colaboradores)</option>
+                  <option value={50}>50% — Dividir meio a meio (50% Profissional / 50% Salão)</option>
+                  <option value={100}>100% — Repassar taxa completa de cartão para o profissional</option>
+                </select>
+              </div>
+
+              <div className="text-[9.5px] text-stone-300 bg-stone-900 p-3 rounded-lg font-mono flex items-center gap-1.5 leading-snug">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                <span>
+                  Automático Ativo: Rateio de taxa fixado em <strong className="text-[#eed093]">{currentSalon.cardFeePercentProfDeduct !== undefined ? currentSalon.cardFeePercentProfDeduct : 0}%</strong> de desconto na comissão profissional.
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Configuração PIX */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200/60 shadow-sm space-y-6">
+            <div className="border-b border-gray-100 pb-3">
+              <h4 className="font-serif font-bold text-gray-900 text-sm flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-[#a0854c]" />
+                Configuração PIX
+              </h4>
+              <p className="text-[11px] text-stone-400 mt-0.5">Configure a chave PIX para recebimento automático nas comandas.</p>
+            </div>
+
+            <div className="space-y-3.5 p-3.5 bg-[#FAF8F5] rounded-xl border border-stone-205/70 shadow-2xs">
+              <div>
+                <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
+                  Tipo da Chave PIX
+                </label>
+                <select
+                  className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400 cursor-pointer"
+                  value={localPixKeyType}
+                  onChange={(e) => setLocalPixKeyType(e.target.value as PixKeyType | '')}
+                  disabled={pixLoading || pixSaving}
+                >
+                  <option value="">Selecione o tipo de chave</option>
+                  <option value="telefone">Telefone</option>
+                  <option value="cnpj">CNPJ</option>
+                  <option value="email">E-mail</option>
+                  <option value="aleatoria">Chave Aleatória</option>
+                </select>
+              </div>
+
+              {localPixKeyType === 'telefone' && (
+                <div>
+                  <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
+                    Chave PIX Telefone
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400"
+                    placeholder="(11) 98888-7777"
+                    value={localPixKey}
+                    onChange={(e) => setLocalPixKey(e.target.value)}
+                    disabled={pixLoading || pixSaving}
+                  />
+                </div>
+              )}
+
+              {localPixKeyType === 'cnpj' && (
+                <div>
+                  <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
+                    Chave PIX CNPJ
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400"
+                    placeholder="00.000.000/0001-00"
+                    value={localPixKey}
+                    onChange={(e) => setLocalPixKey(e.target.value)}
+                    disabled={pixLoading || pixSaving}
+                  />
+                </div>
+              )}
+
+              {localPixKeyType === 'email' && (
+                <div>
+                  <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
+                    Chave PIX E-mail
+                  </label>
+                  <input
+                    type="email"
+                    className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400"
+                    placeholder="financeiro@empresa.com.br"
+                    value={localPixKey}
+                    onChange={(e) => setLocalPixKey(e.target.value)}
+                    disabled={pixLoading || pixSaving}
+                  />
+                </div>
+              )}
+
+              {localPixKeyType === 'aleatoria' && (
+                <div>
+                  <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
+                    Chave Aleatória
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full bg-white border border-stone-250 p-2.5 rounded-lg text-[10.5px] font-bold focus:outline-none focus:border-stone-400"
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    value={localPixKey}
+                    onChange={(e) => setLocalPixKey(e.target.value)}
+                    disabled={pixLoading || pixSaving}
+                  />
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!currentSalon?.id) return;
+                  if (!localPixKeyType) {
+                    setAlertState({ message: 'Selecione o tipo da chave PIX.', variant: 'error' });
+                    return;
+                  }
+                  if (!localPixKey.trim()) {
+                    setAlertState({ message: 'Informe a chave PIX.', variant: 'error' });
+                    return;
+                  }
+                  setPixSaving(true);
+                  try {
+                    const cfg = await saveTenantPixConfig({
+                      tenant_id: currentSalon.id,
+                      pix_key_type: localPixKeyType as PixKeyType,
+                      pix_key: localPixKey.trim(),
+                    });
+                    setAlertState({
+                      message: `Configuração de PIX salva com sucesso (${cfg.pix_key_type}).`,
+                      variant: 'success',
+                    });
+                  } catch (err: any) {
+                    setAlertState({ message: 'Erro ao salvar PIX: ' + (err?.message || String(err)), variant: 'error' });
+                  } finally {
+                    setPixSaving(false);
+                  }
+                }}
+                disabled={pixLoading || pixSaving || !localPixKeyType || !localPixKey.trim() || isRestricted}
+                title={isRestricted ? "Plano expirado. Renove para voltar a realizar alterações." : undefined}
+                className="w-full mt-1 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-stone-300 disabled:to-stone-300 disabled:cursor-not-allowed text-white font-extrabold text-[10.5px] uppercase tracking-wider rounded-lg transition-all cursor-pointer"
+              >
+                {pixSaving ? 'Salvando...' : 'Salvar Configuração PIX'}
+              </button>
+
+              {localPixKeyType && (
+                <div className="text-[9.5px] text-stone-300 bg-stone-900 p-3 rounded-lg font-mono flex items-center gap-1.5 leading-snug">
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${resolvedPixKey ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+                  <span>
+                    {resolvedPixKey ? (
+                      <>PIX Configurado: <strong className="text-[#eed093]">{pixKeyTypeLabels[localPixKeyType] || localPixKeyType}: {resolvedPixKey}</strong></>
+                    ) : (
+                      <>PIX incompleto — preencha a chave do tipo selecionado</>
+                    )}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 4. Plano de Contas Customizado (Finanças) */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200/60 shadow-sm space-y-6">
+            <div className="border-b border-gray-100 pb-3">
+              <h4 className="font-serif font-bold text-gray-900 text-sm">Plano de Contas Customizado (Finanças)</h4>
+              <p className="text-[11px] text-stone-400 mt-0.5">DRE e Balanços de Caixa utilizam categorias do plano de contas para consolidar lucros operacionais.</p>
+            </div>
+
+            <form onSubmit={handleRegisterChart} className="space-y-4">
+              <div>
+                <label className="block text-stone-400 font-bold mb-1 uppercase tracking-wider">Nome da Categoria Financeira</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full bg-[#FCF9F2] p-2.5 rounded-lg border border-stone-250 focus:border-gold-500 focus:outline-none"
+                  placeholder="ex: Conta de Água Copasa"
+                  value={chartName}
+                  onChange={(e) => setChartName(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-stone-400 font-bold mb-1 uppercase tracking-wider">Tipo do Lançamento</label>
+                <div className="flex gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setChartType('despesa')}
+                    className={`flex-1 py-2.5 rounded-lg border font-bold text-center transition-all ${
+                      chartType === 'despesa' 
+                        ? 'bg-rose-50 text-rose-700 border-rose-300' 
+                        : 'bg-white text-stone-500 border-stone-200 font-normal'
+                    }`}
+                  >
+                    Saída / Despesa
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChartType('receita')}
+                    className={`flex-1 py-2.5 rounded-lg border font-bold text-center transition-all ${
+                      chartType === 'receita' 
+                        ? 'bg-green-50 text-green-700 border-green-300' 
+                        : 'bg-white text-stone-500 border-stone-200 font-normal'
+                    }`}
+                  >
+                    Entrada / Receita
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-black hover:bg-gold-500 text-white font-bold py-3.5 px-4 rounded-full transition-all cursor-pointer"
+              >
+                Adicionar ao Plano de Contas
+              </button>
+            </form>
+
+            {/* List existing charts */}
+            <div className="border-t border-gray-100 pt-5">
+              <h5 className="font-bold text-gray-900 mb-3 font-sans">Categorias Disponíveis</h5>
+              <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                {charts.map(c => (
+                  <div key={c.id} className="p-2.5 bg-stone-50 rounded-lg border border-stone-150 flex justify-between items-center">
+                    <span className="font-medium text-stone-800">{c.name}</span>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${c.type === 'receita' ? 'bg-green-50 text-green-700' : 'bg-rose-50 text-rose-700'}`}>
+                      {c.type === 'receita' ? 'Receita' : 'Despesa'}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

@@ -294,60 +294,7 @@ export default function App() {
       verifyRealPayment();
     }
     
-    // 2. Processamento do checkout simulado / mock
-    if (params.get("mock_checkout_success") === "true") {
-      const sId = params.get("salon_id") || (currentSalon?.id);
-      if (sId) {
-        const list = loadSalons();
-        const foundIdx = list.findIndex(s => s.id === sId);
-        if (foundIdx !== -1) {
-          const salonItem = list[foundIdx];
-          
-          let newDate = new Date();
-          if (salonItem.expirationDate) {
-            const currentExp = new Date(salonItem.expirationDate + "T23:59:59");
-            const today = new Date();
-            if (!isNaN(currentExp.getTime()) && currentExp > today) {
-              newDate = currentExp;
-            }
-          }
-          newDate.setDate(newDate.getDate() + 30);
- 
-          const formattedExp = newDate.toISOString().substring(0, 10);
-          const updatedSalonItem = {
-            ...salonItem,
-            expirationDate: formattedExp,
-            isActive: true
-          };
- 
-          list[foundIdx] = updatedSalonItem;
-          saveSalons(list);
-          setSalons(list);
-          setCurrentSalon(updatedSalonItem);
-          setShowStripeSuccessModal(true);
-          
-          if (!userRole) {
-            setUserRole('ADMIN');
-            setProfessionals(loadProfessionals(sId));
-            setServices(loadServices(sId));
-            setProducts(loadProducts(sId));
-            setClients(loadClients(sId));
-            setComandas(loadComandas(sId));
-            setFinancials(loadFinancials(sId));
-            setAppointments(loadAppointments(sId));
-            setCharts(loadCharts(sId));
-            setServiceCategories(loadServiceCategories(sId));
-            setCardAcquirers(loadCardAcquirers(sId));
-            setActiveTab('configuracoes');
-          } else {
-            setActiveTab('configuracoes');
-          }
- 
-          const newPath = window.location.pathname;
-          window.history.replaceState({}, document.title, newPath);
-        }
-      }
-    }
+    // Removido: mock checkout simulado eliminado. Pagamento PIX real é obrigatório.
   }, [currentSalon, userRole]);
 
   // Status de assinatura calculado reativamente
@@ -390,12 +337,6 @@ export default function App() {
     if (isProcessingPayment) return;
     setIsProcessingPayment(true);
 
-    const cleanDomain = currentSalon.name
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]/g, "");
-
     try {
       const pixRes = await fetch("/api/checkout/create-pix", {
         method: "POST",
@@ -416,68 +357,19 @@ export default function App() {
       }
 
       if (pixDataRaw.error) {
-        if (pixDataRaw.isMock) {
-          console.log("[PIX] Mercado Pago não configurado, usando fallback Stripe.");
-        } else {
-          setAlertState({ message: `Mercado Pago: ${pixDataRaw.error}`, variant: "error" });
-          setIsProcessingPayment(false);
-          return;
-        }
+        setAlertState({ message: `Erro ao gerar PIX: ${pixDataRaw.error}`, variant: "error" });
+        setIsProcessingPayment(false);
+        return;
       }
+
+      // Caso inesperado: resposta sem erro, sem QR Code, sem isMock
+      setAlertState({ message: "Erro inesperado ao gerar PIX. Tente novamente.", variant: "error" });
+      setIsProcessingPayment(false);
     } catch (err: any) {
-      console.warn("[PIX] Erro ao chamar Mercado Pago, usando fallback Stripe:", err?.message);
+      console.error("[PIX] Erro ao chamar Mercado Pago:", err?.message);
+      setAlertState({ message: "Erro de conexão com o gateway de pagamento. Tente novamente.", variant: "error" });
+      setIsProcessingPayment(false);
     }
-
-    try {
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          salonId: currentSalon.id,
-          customerEmail: "financeiro@" + (cleanDomain || "salao") + ".com.br",
-          successUrl: window.location.origin + "/?stripe_session_id={CHECKOUT_SESSION_ID}&salon_id=" + currentSalon.id,
-          cancelUrl: window.location.origin + "/",
-        }),
-      });
-      const data = await response.json();
-
-      if (data.isMock) {
-        const list = loadSalons();
-        const updated = list.map((s) => {
-          if (s.id === currentSalon.id) {
-            const currentExp = s.expirationDate ? new Date(s.expirationDate) : new Date();
-            const baseDate = currentExp.getTime() < Date.now() ? new Date() : currentExp;
-            baseDate.setDate(baseDate.getDate() + 30);
-            const yyyy = baseDate.getFullYear();
-            const mm = String(baseDate.getMonth() + 1).padStart(2, "0");
-            const dd = String(baseDate.getDate()).padStart(2, "0");
-            return { ...s, expirationDate: `${yyyy}-${mm}-${dd}`, isActive: true };
-          }
-          return s;
-        });
-        triggerUpdateSalons(updated);
-        const updatedSalon = updated.find((s) => s.id === currentSalon.id);
-        if (updatedSalon) setCurrentSalon(updatedSalon);
-        setShowStripeSuccessModal(true);
-      } else if (data.url) {
-        try {
-          const win = window.open(data.url, "_blank");
-          if (!win || win.closed || typeof win.closed === "undefined") {
-            if (window.top) window.top.location.href = data.url;
-            else window.location.href = data.url;
-          }
-        } catch {
-          if (window.top) window.top.location.href = data.url;
-          else window.location.href = data.url;
-        }
-      } else {
-        setAlertState({ message: "Erro ao gerar sessão de faturamento: " + data.error, variant: "error" });
-      }
-    } catch (err: any) {
-      setAlertState({ message: "Falha ao comunicar com o servidor de faturamento: " + err.message, variant: "error" });
-    }
-
-    setIsProcessingPayment(false);
   };
   
   // Sincronização Automática em segundo plano com o Supabase Cloud
@@ -1927,7 +1819,7 @@ export default function App() {
           onClose={() => setCascadeDeleteTarget(null)}
         />
 
-        {/* Stripe Payment Success Celebration Modal */}
+        {/* Modal de Sucesso - Pagamento PIX Confirmado */}
         {showStripeSuccessModal && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in animate-scale-in">
             <div className="bg-white rounded-2xl w-full max-w-md p-6 border border-emerald-350 shadow-2xl text-center space-y-4 font-sans">
