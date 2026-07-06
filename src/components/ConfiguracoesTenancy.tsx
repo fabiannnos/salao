@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Salon, ChartAccountGroup, ServiceCategory, PixKeyType } from '../types';
-import { ShieldAlert, Building, HelpCircle, Key, Plus, FileText, Check, AlertCircle, Trash2, Edit, Settings, CreditCard, CheckSquare, Database, RefreshCw, Code } from 'lucide-react';
+import { ShieldAlert, Building, HelpCircle, Key, Plus, FileText, Check, AlertCircle, Trash2, Edit, Settings, CreditCard, CheckSquare, Database, RefreshCw, Code, MessageCircle } from 'lucide-react';
 import {
   loadSalons,
   loadProfessionals,
@@ -67,6 +67,7 @@ export default function ConfiguracoesTenancy({
   const [showLocalResetConfirm, setShowLocalResetConfirm] = useState(false);
   const [localResetSuccess, setLocalResetSuccess] = useState(false);
   const [alertState, setAlertState] = useState<{message: string; variant?: 'info' | 'success' | 'error'} | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
 
   // Local PIX form state — lido e gravado EXCLUSIVAMENTE via
   // /api/tenant-pix-config. Não há leitura de `currentSalon.pixKeyType`
@@ -160,6 +161,30 @@ export default function ConfiguracoesTenancy({
         message: "Ocorreu uma falha na conexão com o servidor de banco de dados: " + err.message
       });
     }
+  };
+
+  const handleClearCache = async () => {
+    setIsClearing(true);
+    const preservedKeys = ['saas_salao_salons', 'saas_salao_professionals', 'saas_salao_services', 'saas_salao_products', 'saas_salao_card_acquirers'];
+    const saved: Record<string, string> = {};
+    for (const key of preservedKeys) {
+      const val = localStorage.getItem(key);
+      if (val) saved[key] = val;
+    }
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(r => r.unregister()));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    sessionStorage.clear();
+    localStorage.clear();
+    for (const [key, val] of Object.entries(saved)) {
+      localStorage.setItem(key, val);
+    }
+    window.location.reload();
   };
 
   const handleRegisterCategory = (e: React.FormEvent) => {
@@ -574,6 +599,72 @@ export default function ConfiguracoesTenancy({
                       <p className="text-[8.5px] text-stone-400 mt-1.5 leading-relaxed font-sans">
                         Ao clicar, você iniciará uma sessão de pagamento seguro online. Pagamento efetuado antes do vencimento soma +1 mês na data limite. Pagamentos atrasados liberam o sistema com vencimento para 30 dias subsequentes.
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Support section */}
+                  <div className="border-b border-stone-100 pb-2 pt-2">
+                    <h5 className="font-bold text-stone-900 text-[11px] uppercase tracking-wide flex items-center gap-1.5 font-sans">
+                      <HelpCircle className="w-3.5 h-3.5 text-[#a0854c]" />
+                      <span>Suporte</span>
+                    </h5>
+                    <p className="text-[9.5px] text-stone-400 font-sans">Ferramentas de atualização do sistema e contato com o suporte técnico.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 bg-white rounded-xl border border-stone-250 shadow-2xs space-y-3 font-sans">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center shrink-0 border border-amber-200">
+                          <RefreshCw className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-stone-900 text-sm">🔄 Atualizar Sistema</h4>
+                          <p className="text-[10px] text-stone-500 mt-0.5 leading-relaxed">
+                            Caso exista uma nova versão disponível, clique abaixo para atualizar o sistema automaticamente.
+                            Esta opção limpa o cache da aplicação, verifica novas versões e recarrega o sistema de forma segura.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleClearCache}
+                        disabled={isClearing}
+                        className="w-full bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white font-bold text-xs py-2.5 rounded-lg flex items-center justify-center gap-2 transition cursor-pointer"
+                      >
+                        {isClearing ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Atualizando...</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-4 h-4" />
+                            <span>Atualizar Sistema</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="p-4 bg-white rounded-xl border border-stone-250 shadow-2xs space-y-3 font-sans">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0 border border-blue-200">
+                          <HelpCircle className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-stone-900 text-sm">💬 Precisa de ajuda?</h4>
+                          <p className="text-[10px] text-stone-500 mt-0.5 leading-relaxed">
+                            Caso esteja enfrentando algum problema ou tenha dúvidas sobre o sistema, nossa equipe de suporte está pronta para ajudar.
+                          </p>
+                        </div>
+                      </div>
+                      <a
+                        href="https://wa.me/5581999982848?text=Ol%C3%A1!%0A%0AEstou%20precisando%20de%20ajuda%20com%20o%20sistema%20Modello.%0A%0AMinha%20empresa%20%C3%A9%3A%0A%0ADescreva%20aqui%20o%20problema%3A"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-lg flex items-center justify-center gap-2 transition cursor-pointer"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        <span>Falar com o Suporte</span>
+                      </a>
                     </div>
                   </div>
 

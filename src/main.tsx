@@ -3,6 +3,28 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
+const params = new URLSearchParams(window.location.search);
+if (params.has('clear_cache')) {
+  (async () => {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(r => r.unregister()));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    sessionStorage.clear();
+    localStorage.clear();
+    params.delete('clear_cache');
+    const newUrl = params.toString() ? `${window.location.pathname}?${params}` : window.location.pathname;
+    window.history.replaceState({}, '', newUrl);
+    console.log('[Cache Clear] Cache limpo com sucesso.');
+    window.location.reload();
+  })();
+  throw new Error('Cache clear in progress');
+}
+
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
 
