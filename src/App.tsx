@@ -620,6 +620,24 @@ export default function App() {
         setComandas(all.filter(c => c.salonId === currentSalon.id));
       }
     }
+
+    // Sync financial records linked to this comanda
+    const allFin = loadFinancials();
+    let finChanged = false;
+    allFin.forEach(f => {
+      if (f.relatedComandaId === updatedComanda.id) {
+        f.date = updatedComanda.paymentDate || f.date;
+        f.paymentDate = updatedComanda.paymentDate || f.paymentDate;
+        f.competenceDate = updatedComanda.competenceDate || f.competenceDate;
+        finChanged = true;
+      }
+    });
+    if (finChanged) {
+      saveFinancials(allFin);
+      if (currentSalon) {
+        setFinancials(allFin.filter(f => f.salonId === currentSalon.id));
+      }
+    }
   };
 
   const handleUpdateComandaStatus = async (id: string, newStatus: ComandaStatus, payment?: any, isFiado?: boolean, cardDetails?: any, pixPayload?: string) => {

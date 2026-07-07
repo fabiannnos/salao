@@ -135,7 +135,8 @@ export interface Comanda {
   }[];
   totalValue: number;
   status: ComandaStatus;
-  dateCreated: string; // YYYY-MM-DDTHH:MM
+  dateCreated: string; // YYYY-MM-DDTHH:MM (data de lançamento no sistema)
+  competenceDate?: string; // YYYY-MM-DD (data real do atendimento/faturamento)
   paymentDate?: string; // YYYY-MM-DD
   paymentMethod?: 'Dinheiro' | 'Cartão Credito' | 'Cartão Debito' | 'Pix' | 'Caderno'; // "Caderno" corresponds to Duplicata (Accounts Receivable)
   isFiado: boolean; // True matches Duplicata accounts receivable
@@ -164,6 +165,7 @@ export interface FinancialRecord {
   category: string; // e.g. 'Serviço', 'Produto', 'Aluguel', 'Fornecedores', 'Comissão', 'Marketing'
   amount: number;
   date: string; // YYYY-MM-DD (matches either emission/due or transaction date)
+  competenceDate?: string; // YYYY-MM-DD (data de competência financeira)
   description: string;
   status: 'pago' | 'pendente';
   relatedComandaId?: string;

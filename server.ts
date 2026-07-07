@@ -852,6 +852,7 @@ app.get("/api/supa-pull", async (req, res) => {
       totalValue: com.total_value || 0,
       status: com.status || "Aberto",
       dateCreated: com.date_created,
+      competenceDate: com.competence_date,
       paymentDate: com.payment_date,
       paymentMethod: com.payment_method,
       isFiado: com.is_fiado !== undefined ? com.is_fiado : false,
@@ -880,6 +881,7 @@ app.get("/api/supa-pull", async (req, res) => {
       relatedComandaId: f.related_comanda_id,
       dueDate: f.due_date,
       paymentDate: f.payment_date,
+      competenceDate: f.competence_date,
       reminderDate: f.reminder_date
     }));
 
@@ -1360,6 +1362,7 @@ function comandaToDb(com: any) {
     total_value: com.totalValue !== undefined ? com.totalValue : 0,
     status: com.status || 'Aberto',
     date_created: com.dateCreated || null,
+    competence_date: com.competenceDate || null,
     payment_date: com.paymentDate || null,
     payment_method: com.paymentMethod || null,
     is_fiado: com.isFiado !== undefined ? com.isFiado : false,
@@ -1390,6 +1393,7 @@ function comandaFromDb(db: any) {
     totalValue: db.total_value || 0,
     status: db.status || 'Aberto',
     dateCreated: db.date_created,
+    competenceDate: db.competence_date,
     paymentDate: db.payment_date,
     paymentMethod: db.payment_method,
     isFiado: db.is_fiado !== undefined ? db.is_fiado : false,

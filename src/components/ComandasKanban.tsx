@@ -75,6 +75,7 @@ export default function ComandasKanban({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [alertState, setAlertState] = useState<{message: string; variant?: 'info' | 'success' | 'error'} | null>(null);
   const [editDateCreated, setEditDateCreated] = useState<string>('');
+  const [editCompetenceDate, setEditCompetenceDate] = useState<string>('');
   const [editPaymentDate, setEditPaymentDate] = useState<string>('');
 
   // New/Edit Comanda build state
@@ -614,10 +615,11 @@ export default function ComandasKanban({
         products: finalProducts,
         totalValue: totalVal,
         dateCreated: editDateCreated || orig.dateCreated,
+        competenceDate: editCompetenceDate || orig.competenceDate,
         isFiado: isFiado,
         status: forceStatus,
         paymentMethod: finalMethod,
-        paymentDate: forceStatus === 'Concluido' ? new Date().toISOString().split('T')[0] : orig.paymentDate,
+        paymentDate: editPaymentDate || orig.paymentDate,
 
         cardAcquirerId: cardAcquirerIdValue,
         cardAcquirerName: cardAcquirerNameValue,
@@ -656,9 +658,10 @@ export default function ComandasKanban({
         totalValue: totalVal,
         status: forceStatus,
         dateCreated: editDateCreated || new Date().toISOString().substring(0, 16),
+        competenceDate: editCompetenceDate || undefined,
         isFiado: isFiado,
         paymentMethod: finalMethod,
-        paymentDate: forceStatus === 'Concluido' ? new Date().toISOString().split('T')[0] : undefined,
+        paymentDate: editPaymentDate || (forceStatus === 'Concluido' ? new Date().toISOString().split('T')[0] : undefined),
 
         cardAcquirerId: cardAcquirerIdValue,
         cardAcquirerName: cardAcquirerNameValue,
@@ -771,6 +774,7 @@ export default function ComandasKanban({
     }
 
     setEditDateCreated(c.dateCreated || '');
+    setEditCompetenceDate(c.competenceDate || '');
     setEditPaymentDate(c.paymentDate || '');
     setShowNewComandaModal(true);
   };
@@ -932,6 +936,7 @@ export default function ComandasKanban({
               setPaymentMethodSelected('Pix');
               setIsFiado(false);
               setEditDateCreated(new Date().toISOString().substring(0, 16));
+              setEditCompetenceDate('');
               setEditPaymentDate('');
 
               setSelectedBrand('Visa');
@@ -2367,17 +2372,27 @@ export default function ComandasKanban({
                     </label>
                     
                     <div className="space-y-1">
-                      <span className="text-[9px] text-stone-400 block font-mono">Abertura / Lançamento:</span>
+                      <span className="text-[9px] text-stone-500 block font-mono">Abertura (sistema):</span>
                       <input 
                         type="datetime-local" 
                         value={editDateCreated}
-                        onChange={(e) => setEditDateCreated(e.target.value)}
+                        disabled
+                        className="w-full bg-stone-900 border border-stone-800 text-stone-500 p-2 rounded text-xs font-mono cursor-not-allowed"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="text-[9px] text-stone-400 block font-mono">Data Atendimento / Faturamento:</span>
+                      <input 
+                        type="date" 
+                        value={editCompetenceDate}
+                        onChange={(e) => setEditCompetenceDate(e.target.value)}
                         className="w-full bg-black border border-stone-800 text-stone-200 p-2 rounded text-xs focus:outline-none focus:border-[#eed093] font-mono"
                       />
                     </div>
 
                     <div className="space-y-1">
-                      <span className="text-[9px] text-stone-400 block font-mono">Conclusão / Liquidação:</span>
+                      <span className="text-[9px] text-stone-400 block font-mono">Data Pagamento:</span>
                       <input 
                         type="date" 
                         value={editPaymentDate}

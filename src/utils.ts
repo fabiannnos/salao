@@ -62,13 +62,13 @@ export function getMonthName(monthIndex: number): string {
 }
 
 export function getComissaoReferenceDate(
-  comanda: { dateCreated?: string; paymentDate?: string },
+  comanda: { dateCreated?: string; competenceDate?: string; paymentDate?: string },
   rule: 'competencia' | 'caixa'
 ): string {
   if (rule === 'caixa') {
     return comanda.paymentDate || '';
   }
-  return (comanda.dateCreated || '').split('T')[0];
+  return comanda.competenceDate || (comanda.dateCreated || '').split('T')[0];
 }
 
 export function exportToCSV(data: any[], filename: string) {
