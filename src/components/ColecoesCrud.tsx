@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Professional, Service, Product, Client, ServiceCategory, CardAcquirer, CardFeeRule } from '../types';
-import { formatCurrency, formatPhone } from '../utils';
+import { formatCurrency, formatPhone, formatDateBR } from '../utils';
 import { Users, Scissors, Tag, Sparkles, Plus, Trash2, Edit, Save, CheckSquare, Square, Upload, AlertTriangle, Download, ChevronDown, ChevronRight, CreditCard } from 'lucide-react';
 import AlertModal from './AlertModal';
 import { loadComandas, loadAppointments, loadFinancials } from '../dataStore';
@@ -501,7 +501,7 @@ export default function ColecoesCrud({
       const activeAppointment = loadAppointments(salonId).find(a => a.clientId === id);
       if (activeAppointment) {
         setDeleteConfirm(null);
-        setAlertState({ message: `Não é possível excluir o cliente: existe agendamento ativo (${activeAppointment.date} ${activeAppointment.time}). Cancele ou remova o agendamento antes.`, variant: 'error' });
+        setAlertState({ message: `Não é possível excluir o cliente: existe agendamento ativo (${formatDateBR(activeAppointment.date)} ${activeAppointment.time}). Cancele ou remova o agendamento antes.`, variant: 'error' });
         return;
       }
       const clientComandaIds = new Set(allComandas.filter(c => c.clientId === id).map(c => c.id));

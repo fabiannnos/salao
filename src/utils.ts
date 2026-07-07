@@ -71,6 +71,15 @@ export function getComissaoReferenceDate(
   return comanda.competenceDate || (comanda.dateCreated || '').split('T')[0];
 }
 
+export function formatDateBR(dateStr?: string): string {
+  if (!dateStr) return '';
+  const d = dateStr.split('T')[0];
+  if (!d) return '';
+  const parts = d.split('-');
+  if (parts.length !== 3) return dateStr;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
 export function exportToCSV(data: any[], filename: string) {
   if (data.length === 0) return;
   const headers = Object.keys(data[0]).join(',');

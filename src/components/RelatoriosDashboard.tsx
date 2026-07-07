@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FinancialRecord, Comanda, Professional } from '../types';
-import { formatCurrency, exportToCSV } from '../utils';
+import { formatCurrency, exportToCSV, formatDateBR } from '../utils';
 import AlertModal from './AlertModal';
 import { 
   TrendingUp, 
@@ -448,8 +448,8 @@ export default function RelatoriosDashboard({
             <td class="font-bold">${clientName}</td>
             <td>${detail}</td>
             <td>${item.category}</td>
-            <td class="font-mono">${item.date.split('-').reverse().join('/')}</td>
-            <td class="font-mono">${(item.dueDate || item.date).split('-').reverse().join('/')}</td>
+            <td class="font-mono">${formatDateBR(item.date)}</td>
+            <td class="font-mono">${formatDateBR(item.dueDate || item.date)}</td>
             <td class="text-right font-bold" style="color: #78350f;">${formatCurrency(item.amount)}</td>
             <td class="text-right">
               <span class="${statusClass}">${statusText}</span>
@@ -504,8 +504,8 @@ export default function RelatoriosDashboard({
           <tr>
             <td class="font-bold">${item.description}</td>
             <td>${item.category}</td>
-            <td class="font-mono">${item.date.split('-').reverse().join('/')}</td>
-            <td class="font-mono">${(item.dueDate || item.date).split('-').reverse().join('/')}</td>
+            <td class="font-mono">${formatDateBR(item.date)}</td>
+            <td class="font-mono">${formatDateBR(item.dueDate || item.date)}</td>
             <td class="text-right font-bold" style="color: #991b1b;">${formatCurrency(item.amount)}</td>
             <td class="text-right">
               <span class="${statusClass}">${statusText}</span>
@@ -801,8 +801,8 @@ export default function RelatoriosDashboard({
                           <td className="px-6 py-4 font-bold text-stone-900">{clientName}</td>
                           <td className="px-6 py-4 text-stone-500 line-clamp-1 max-w-xs">{detail}</td>
                           <td className="px-6 py-4 font-medium text-stone-600">{item.category}</td>
-                          <td className="px-6 py-4 font-mono text-stone-400">{item.date.split('-').reverse().join('/')}</td>
-                          <td className="px-6 py-4 font-mono text-stone-400">{(item.dueDate || item.date).split('-').reverse().join('/')}</td>
+                          <td className="px-6 py-4 font-mono text-stone-400">{formatDateBR(item.date)}</td>
+                          <td className="px-6 py-4 font-mono text-stone-400">{formatDateBR(item.dueDate || item.date)}</td>
                           <td className="px-6 py-4 text-right font-bold text-gold-700">{formatCurrency(item.amount)}</td>
                           <td className="px-6 py-4 text-right">
                             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[10px] ${
@@ -900,8 +900,8 @@ export default function RelatoriosDashboard({
                       <tr key={item.id} className="hover:bg-rose-50/10 transition-all font-sans">
                         <td className="px-6 py-4 font-bold text-stone-900">{item.description}</td>
                         <td className="px-6 py-4 font-medium text-stone-600">{item.category}</td>
-                        <td className="px-6 py-4 font-mono text-stone-400">{item.date.split('-').reverse().join('/')}</td>
-                        <td className="px-6 py-4 font-mono text-stone-400">{(item.dueDate || item.date).split('-').reverse().join('/')}</td>
+                        <td className="px-6 py-4 font-mono text-stone-400">{formatDateBR(item.date)}</td>
+                        <td className="px-6 py-4 font-mono text-stone-400">{formatDateBR(item.dueDate || item.date)}</td>
                         <td className="px-6 py-4 text-right font-bold text-rose-600">{formatCurrency(item.amount)}</td>
                         <td className="px-6 py-4 text-right">
                           <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[10px] ${
@@ -1116,8 +1116,8 @@ export default function RelatoriosDashboard({
                               <td className="px-4 py-3 font-semibold text-stone-900">{clientName}</td>
                               <td className="px-4 py-3 text-stone-500">{detail}</td>
                               <td className="px-4 py-3 text-stone-500">{item.category}</td>
-                              <td className="px-4 py-3 font-mono text-stone-400">{item.date.split('-').reverse().join('/')}</td>
-                              <td className="px-4 py-3 font-mono text-stone-400">{(item.dueDate || item.date).split('-').reverse().join('/')}</td>
+                              <td className="px-4 py-3 font-mono text-stone-400">{formatDateBR(item.date)}</td>
+                              <td className="px-4 py-3 font-mono text-stone-400">{formatDateBR(item.dueDate || item.date)}</td>
                               <td className="px-4 py-3 text-right font-bold text-stone-800">{formatCurrency(item.amount)}</td>
                               <td className="px-3 py-3 text-right">
                                 <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] ${
@@ -1191,8 +1191,8 @@ export default function RelatoriosDashboard({
                           <tr key={item.id}>
                             <td className="px-4 py-3 font-semibold text-stone-900">{item.description}</td>
                             <td className="px-4 py-3 text-stone-500">{item.category}</td>
-                            <td className="px-4 py-3 font-mono text-stone-400">{item.date.split('-').reverse().join('/')}</td>
-                            <td className="px-4 py-3 font-mono text-stone-400">{(item.dueDate || item.date).split('-').reverse().join('/')}</td>
+                            <td className="px-4 py-3 font-mono text-stone-400">{formatDateBR(item.date)}</td>
+                            <td className="px-4 py-3 font-mono text-stone-400">{formatDateBR(item.dueDate || item.date)}</td>
                             <td className="px-4 py-3 text-right font-bold text-rose-700">{formatCurrency(item.amount)}</td>
                             <td className="px-3 py-3 text-right">
                               <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] ${

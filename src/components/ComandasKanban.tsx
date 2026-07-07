@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Comanda, ComandaStatus, Client, Professional, Service, Product, ServiceCategory, CardAcquirer, CardFeeRule, Salon } from '../types';
-import { formatCurrency, formatPhone, generateWhatsAppLink } from '../utils';
+import { formatCurrency, formatPhone, generateWhatsAppLink, formatDateBR } from '../utils';
 import { generatePixStatic, sanitizePixKey, generatePixTxid } from '../utils/pix/generatePixStatic';
 import { fetchTenantPixConfig } from '../utils/pix/tenantPixConfig';
 import QRCode from 'qrcode';
@@ -996,7 +996,7 @@ export default function ComandasKanban({
                       <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4 block leading-relaxed">
                           <span className="font-bold text-stone-900 block font-mono">{c.ticketNumber}</span>
-                          <span className="text-stone-400 block font-mono text-[10px]">{c.dateCreated.replace('T', ' ')}</span>
+                          <span className="text-stone-400 block font-mono text-[10px]">{formatDateBR(c.dateCreated)}{c.dateCreated?.includes('T') ? ' ' + c.dateCreated.split('T')[1].substring(0, 5) : ''}</span>
                         </td>
                         <td className="px-6 py-4">
                           <div className="font-bold text-stone-900">{c.clientName}</div>
@@ -1051,7 +1051,7 @@ export default function ComandasKanban({
                               <span className="font-bold text-stone-800 font-sans block text-[11px]">
                                 {c.isFiado ? 'Duplicata / Caderno' : (c.paymentMethod || 'Não selecionado')}
                               </span>
-                              {c.paymentDate && <span className="text-stone-400 block text-[10px]">{c.paymentDate}</span>}
+                              {c.paymentDate && <span className="text-stone-400 block text-[10px]">{formatDateBR(c.paymentDate)}</span>}
                             </>
                           ) : (
                             <span className="text-stone-400 italic font-sans">Em Aberto</span>

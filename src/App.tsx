@@ -22,7 +22,7 @@ import {
 
 import ModalPagamentoPix from './components/ModalPagamentoPix';
 import ModalConfirmCascadeDelete from './components/ModalConfirmCascadeDelete';
-import { formatPhone, formatCNPJ } from './utils';
+import { formatPhone, formatCNPJ, formatDateBR } from './utils';
 import { getTenantStatus, getDaysRemaining, GRACE_PERIOD_DAYS, type TenantStatus } from './utils/billing/getTenantStatus';
 
 // Icons
@@ -1830,7 +1830,7 @@ export default function App() {
                     <div>
                       <strong className="block text-rose-950 font-extrabold text-sm">Período de carência — sistema em modo somente leitura.</strong>
                       <p className="text-xs text-rose-800 leading-relaxed max-w-2xl mt-0.5">
-                        Sua assinatura venceu em <strong>{currentSalon.expirationDate}</strong> ({daysOverdue} {daysOverdue === 1 ? 'dia' : 'dias'} atrás). Você tem <strong>{GRACE_PERIOD_DAYS - daysOverdue}</strong> {GRACE_PERIOD_DAYS - daysOverdue === 1 ? 'dia' : 'dias'} restantes de carência para renovar. Durante este período, você pode visualizar relatórios e imprimir, mas não pode cadastrar, editar ou excluir informações.
+                        Sua assinatura venceu em <strong>{formatDateBR(currentSalon.expirationDate)}</strong> ({daysOverdue} {daysOverdue === 1 ? 'dia' : 'dias'} atrás). Você tem <strong>{GRACE_PERIOD_DAYS - daysOverdue}</strong> {GRACE_PERIOD_DAYS - daysOverdue === 1 ? 'dia' : 'dias'} restantes de carência para renovar. Durante este período, você pode visualizar relatórios e imprimir, mas não pode cadastrar, editar ou excluir informações.
                       </p>
                     </div>
                   </div>
@@ -1855,7 +1855,7 @@ export default function App() {
                   <div>
                     <strong className="block text-red-950 font-extrabold text-sm">Assinatura bloqueada — período de carência expirado.</strong>
                     <p className="text-xs text-red-800 leading-relaxed max-w-2xl mt-0.5">
-                      Sua assinatura expirou em <strong>{currentSalon.expirationDate}</strong> ({daysOverdue} {daysOverdue === 1 ? 'dia' : 'dias'} atrás) e o período de carência de {GRACE_PERIOD_DAYS} dias já se encerrou. Renove agora para voltar a utilizar o sistema.
+                      Sua assinatura expirou em <strong>{formatDateBR(currentSalon.expirationDate)}</strong> ({daysOverdue} {daysOverdue === 1 ? 'dia' : 'dias'} atrás) e o período de carência de {GRACE_PERIOD_DAYS} dias já se encerrou. Renove agora para voltar a utilizar o sistema.
                     </p>
                   </div>
                 </div>
@@ -1882,7 +1882,7 @@ export default function App() {
                   <div>
                     <strong className="block text-amber-950 font-extrabold text-sm">Sua assinatura vence em {daysRemaining} {daysRemaining === 1 ? 'dia' : 'dias'}. Renove para evitar bloqueios.</strong>
                     <p className="text-xs text-amber-800 leading-relaxed max-w-2xl mt-0.5">
-                      Vencimento em {currentSalon.expirationDate}. Renove agora para manter o sistema ativo.
+                      Vencimento em {formatDateBR(currentSalon.expirationDate)}. Renove agora para manter o sistema ativo.
                     </p>
                   </div>
                 </div>
@@ -2011,7 +2011,7 @@ export default function App() {
                 </p>
               </div>
               <div className="bg-[#e6f4ea] text-[#137333] border border-[#ceead6] p-3.5 rounded-lg text-xs leading-relaxed text-left space-y-1 font-sans">
-                <div className="flex justify-between font-bold"><span>Licença Atualizada:</span> <span className="font-mono text-stone-900">{currentSalon?.expirationDate ? currentSalon.expirationDate.split('-').reverse().join('/') : 'Ativo'}</span></div>
+                <div className="flex justify-between font-bold"><span>Licença Atualizada:</span> <span className="font-mono text-stone-900">{currentSalon?.expirationDate ? formatDateBR(currentSalon.expirationDate) : 'Ativo'}</span></div>
                 <div className="flex justify-between font-bold mt-0.5"><span>Situação da Licença:</span> <span className="text-[#137333]">Regularizado & Liberado!</span></div>
               </div>
               <button

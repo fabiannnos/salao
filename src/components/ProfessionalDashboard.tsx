@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Comanda, Professional, Salon } from '../types';
-import { formatCurrency, getMonthName, getComissaoReferenceDate } from '../utils';
+import { formatCurrency, getMonthName, getComissaoReferenceDate, formatDateBR } from '../utils';
 import { Award, Scissors, Percent, FileText, Calendar, Filter, Users, Download } from 'lucide-react';
 import GestaoModelloLogo from './GestaoModelloLogo';
 
@@ -299,7 +299,7 @@ export default function ProfessionalDashboard({
                   professionalServices.map((item, index) => (
                     <tr key={index} className="hover:bg-gold-50/10 transition-colors">
                       <td className="px-8 py-5 text-stone-400 font-mono">
-                        {item.paymentDate.split('-').reverse().join('/')}
+                        {formatDateBR(item.paymentDate)}
                       </td>
                       <td className="px-8 py-5">
                         <span className="bg-stone-100 text-stone-800 font-bold px-2 py-0.5 rounded text-[10px] font-mono">

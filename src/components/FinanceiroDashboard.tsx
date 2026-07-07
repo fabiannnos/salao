@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FinancialRecord, Comanda, ChartAccountGroup, Professional } from '../types';
-import { formatCurrency, exportToCSV, getComissaoReferenceDate } from '../utils';
+import { formatCurrency, exportToCSV, getComissaoReferenceDate, formatDateBR } from '../utils';
 import { 
   TrendingUp, 
   Wallet, 
@@ -504,7 +504,7 @@ export default function FinanceiroDashboard({
     
     const rowsHtml = selectedItems.map(item => {
       const { clientName, detail } = getRecordClientAndDetail(item);
-      const venc = (item.dueDate || item.date).split('-').reverse().join('/');
+      const venc = formatDateBR(item.dueDate || item.date);
       const statusLabel = item.status === 'pago' ? 'RECEBIDO' : 'PENDENTE';
       const statusClass = item.status === 'pago' ? 'status-pago' : 'status-pendente';
       return `
@@ -637,7 +637,7 @@ export default function FinanceiroDashboard({
   const handleSendReminder = (item: FinancialRecord) => {
     // Generate WhatsApp API URL
     const cleanPhone = "5511988887777"; // fallback mock or specific salon phone
-    const message = `Olá! Lembramos que o vencimento do lançamento "${item.description}" no valor de ${formatCurrency(item.amount)} está agendado para ${item.dueDate || item.date}. Por favor providencie o acerto. Obrigado!`;
+    const message = `Olá! Lembramos que o vencimento do lançamento "${item.description}" no valor de ${formatCurrency(item.amount)} está agendado para ${formatDateBR(item.dueDate || item.date)}. Por favor providencie o acerto. Obrigado!`;
     const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
     window.open(waUrl, '_blank');
   };
@@ -829,8 +829,8 @@ export default function FinanceiroDashboard({
             <td class="font-bold">${clientName}</td>
             <td>${detail}</td>
             <td>${item.category}</td>
-            <td class="font-mono">${item.date.split('-').reverse().join('/')}</td>
-            <td class="font-mono">${(item.dueDate || item.date).split('-').reverse().join('/')}</td>
+            <td class="font-mono">${formatDateBR(item.date)}</td>
+            <td class="font-mono">${formatDateBR(item.dueDate || item.date)}</td>
             <td class="text-right font-bold" style="color: #78350f;">${formatCurrency(item.amount)}</td>
             <td class="text-right">
               <span class="${statusClass}">${statusText}</span>
@@ -885,8 +885,8 @@ export default function FinanceiroDashboard({
           <tr>
             <td class="font-bold">${item.description}</td>
             <td>${item.category}</td>
-            <td class="font-mono">${item.date.split('-').reverse().join('/')}</td>
-            <td class="font-mono">${(item.dueDate || item.date).split('-').reverse().join('/')}</td>
+            <td class="font-mono">${formatDateBR(item.date)}</td>
+            <td class="font-mono">${formatDateBR(item.dueDate || item.date)}</td>
             <td class="text-right font-bold" style="color: #991b1b;">${formatCurrency(item.amount)}</td>
             <td class="text-right">
               <span class="${statusClass}">${statusText}</span>
@@ -1247,7 +1247,7 @@ export default function FinanceiroDashboard({
                               {c.services.map(s => s.name).join(' + ')}
                             </td>
                             <td className="px-6 py-4 text-stone-400 font-mono">
-                              {c.dateCreated.substring(0, 10).split('-').reverse().join('/')} ({c.ticketNumber})
+                              {formatDateBR(c.dateCreated)} ({c.ticketNumber})
                             </td>
                             <td className="px-6 py-4 text-right font-sans font-bold text-[#775a19]">
                               {formatCurrency(c.totalValue)}
@@ -1453,8 +1453,8 @@ export default function FinanceiroDashboard({
                       <tr key={item.id} className="hover:bg-rose-50/10 transition-all font-sans">
                         <td className="px-6 py-4 font-bold text-stone-900">{item.description}</td>
                         <td className="px-6 py-4 font-medium">{item.category}</td>
-                        <td className="px-6 py-4 font-mono text-stone-400">{item.dueDate || item.date}</td>
-                        <td className="px-6 py-4 font-mono text-stone-500">{item.status === 'pago' ? (item.paymentDate || item.date) : 'N/A'}</td>
+                        <td className="px-6 py-4 font-mono text-stone-400">{formatDateBR(item.dueDate || item.date)}</td>
+                        <td className="px-6 py-4 font-mono text-stone-500">{item.status === 'pago' ? formatDateBR(item.paymentDate || item.date) : 'N/A'}</td>
                         <td className="px-6 py-4 text-right font-bold text-rose-600">{formatCurrency(item.amount)}</td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex justify-end gap-2 items-center">
@@ -1648,8 +1648,8 @@ export default function FinanceiroDashboard({
                             <span className="text-[10px] text-stone-500 font-medium block mt-0.5">{detail}</span>
                           </td>
                           <td className="px-6 py-4 font-medium">{item.category}</td>
-                          <td className="px-6 py-4 font-mono text-stone-400">{(item.dueDate || item.date).split('-').reverse().join('/')}</td>
-                          <td className="px-6 py-4 font-mono text-stone-500">{item.status === 'pago' ? (item.paymentDate || item.date).split('-').reverse().join('/') : 'N/A'}</td>
+                          <td className="px-6 py-4 font-mono text-stone-400">{formatDateBR(item.dueDate || item.date)}</td>
+                          <td className="px-6 py-4 font-mono text-stone-500">{item.status === 'pago' ? formatDateBR(item.paymentDate || item.date) : 'N/A'}</td>
                           <td className="px-6 py-4 text-right font-bold text-gold-600">{formatCurrency(item.amount)}</td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex justify-end gap-2 items-center">
@@ -2722,8 +2722,8 @@ export default function FinanceiroDashboard({
                               <td className="px-4 py-3 font-semibold text-stone-900">{clientName}</td>
                               <td className="px-4 py-3 text-stone-500">{detail}</td>
                               <td className="px-4 py-3 text-stone-500">{item.category}</td>
-                              <td className="px-4 py-3 font-mono text-stone-400">{item.date.split('-').reverse().join('/')}</td>
-                              <td className="px-4 py-3 font-mono text-stone-400">{(item.dueDate || item.date).split('-').reverse().join('/')}</td>
+                              <td className="px-4 py-3 font-mono text-stone-400">{formatDateBR(item.date)}</td>
+                              <td className="px-4 py-3 font-mono text-stone-400">{formatDateBR(item.dueDate || item.date)}</td>
                               <td className="px-4 py-3 text-right font-bold text-stone-800">{formatCurrency(item.amount)}</td>
                               <td className="px-3 py-3 text-right">
                                 <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] ${
@@ -2797,8 +2797,8 @@ export default function FinanceiroDashboard({
                           <tr key={item.id}>
                             <td className="px-4 py-3 font-semibold text-stone-900">{item.description}</td>
                             <td className="px-4 py-3 text-stone-500">{item.category}</td>
-                            <td className="px-4 py-3 font-mono text-stone-400">{item.date.split('-').reverse().join('/')}</td>
-                            <td className="px-4 py-3 font-mono text-stone-400">{(item.dueDate || item.date).split('-').reverse().join('/')}</td>
+                            <td className="px-4 py-3 font-mono text-stone-400">{formatDateBR(item.date)}</td>
+                            <td className="px-4 py-3 font-mono text-stone-400">{formatDateBR(item.dueDate || item.date)}</td>
                             <td className="px-4 py-3 text-right font-bold text-rose-700">{formatCurrency(item.amount)}</td>
                             <td className="px-3 py-3 text-right">
                               <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] ${

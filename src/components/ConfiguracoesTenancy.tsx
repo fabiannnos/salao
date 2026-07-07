@@ -8,7 +8,7 @@ import {
   loadProducts,
   loadFinancials
 } from '../dataStore';
-import { formatCNPJ, formatPhone } from '../utils';
+import { formatCNPJ, formatPhone, formatDateBR } from '../utils';
 import { fetchTenantPixConfig, saveTenantPixConfig } from '../utils/pix/tenantPixConfig';
 import AlertModal from './AlertModal';
 
@@ -500,7 +500,7 @@ export default function ConfiguracoesTenancy({
                 <div className="p-3 bg-zinc-900 text-stone-100 rounded-xl border border-zinc-950 text-center space-y-1">
                   <span className="text-stone-400 text-[9px] uppercase font-bold tracking-wider block">Vencimento da Licença</span>
                   <div className="text-xs font-black text-[#e5b35f] font-mono leading-none py-2">
-                    {currentSalon?.expirationDate ? currentSalon.expirationDate.split('-').reverse().join('/') : '30 Dias - Sandbox'}
+                    {currentSalon?.expirationDate ? formatDateBR(currentSalon.expirationDate) : '30 Dias - Sandbox'}
                   </div>
                   <span className="text-[9px] text-stone-400 block leading-tight font-sans">Instalação renovada</span>
                 </div>
@@ -639,7 +639,7 @@ export default function ConfiguracoesTenancy({
                       <div>
                         <span className="text-stone-400 text-[8.5px] uppercase font-bold block">Próximo Vencimento</span>
                         <strong className="text-stone-900">
-                          {currentSalon.expirationDate ? currentSalon.expirationDate.split('-').reverse().join('/') : '30 Dias - Sandbox'}
+                          {currentSalon.expirationDate ? formatDateBR(currentSalon.expirationDate) : '30 Dias - Sandbox'}
                         </strong>
                       </div>
                       <div>

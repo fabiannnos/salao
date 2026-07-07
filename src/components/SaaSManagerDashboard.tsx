@@ -26,7 +26,7 @@ import {
   Check,
   Trash2
 } from 'lucide-react';
-import { formatPhone, formatCNPJ, formatCEP } from '../utils';
+import { formatPhone, formatCNPJ, formatCEP, formatDateBR } from '../utils';
 import AlertModal from './AlertModal';
 
 interface SaaSManagerDashboardProps {
@@ -818,7 +818,7 @@ _Nota: Guarde seus dados em local seguro e confidencial. Suporte SaaS Modello._`
                             <td className="px-6 py-4 text-center font-mono font-bold text-stone-750">
                               <div className="inline-flex items-center gap-1 justify-center">
                                 <Calendar className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-                                <span>{s.expirationDate ? s.expirationDate.split('-').reverse().join('/') : '7 Dias'}</span>
+                                <span>{s.expirationDate ? formatDateBR(s.expirationDate) : '7 Dias'}</span>
                               </div>
                             </td>
 

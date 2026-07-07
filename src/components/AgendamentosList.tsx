@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Appointment, Client, Professional, Service } from '../types';
-import { formatCurrency, formatPhone } from '../utils';
+import { formatCurrency, formatPhone, formatDateBR } from '../utils';
 import { Calendar, Clock, Scissors, User, Video, Plus, Bell, Check, Trash2, CalendarDays, Search, X, Edit } from 'lucide-react';
 import AlertModal from './AlertModal';
 
@@ -395,7 +395,7 @@ export default function AgendamentosList({
           </div>
         ) : (
           appointments.map(app => {
-            const dateFormatted = app.date.split('-').reverse().join('/');
+            const dateFormatted = formatDateBR(app.date);
             const displayServices = app.services && app.services.length > 0 ? app.services : [{ name: app.serviceName, price: app.price }];
 
             return (
