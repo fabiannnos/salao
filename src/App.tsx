@@ -65,6 +65,10 @@ export default function App() {
     currentSalonRef.current = currentSalon;
   }, [currentSalon]);
 
+  // Active Admin workspace Tab
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'agendamentos' | 'comandas' | 'financeiro' | 'relatorios' | 'colecoes' | 'configuracoes'>('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   // Persist active tab for session restore on refresh
   useEffect(() => {
     if (userRole !== null) {
@@ -119,10 +123,6 @@ export default function App() {
   const [selectedResetSalonId, setSelectedResetSalonId] = useState<string>('');
   const [resetConfirmTargetId, setResetConfirmTargetId] = useState<string | null>(null);
   const [resetSuccessAlert, setResetSuccessAlert] = useState<string | null>(null);
-
-  // Active Admin workspace Tab
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'agendamentos' | 'comandas' | 'financeiro' | 'relatorios' | 'colecoes' | 'configuracoes'>('dashboard');
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Loaded database synchronized arrays
   const [salons, setSalons] = useState<Salon[]>([]);
