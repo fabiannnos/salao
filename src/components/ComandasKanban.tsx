@@ -2410,22 +2410,22 @@ export default function ComandasKanban({
                   type="button"
                   disabled={isReadOnly}
                   title={isReadOnly ? TOOLTIP_READONLY : undefined}
-                  onClick={() => handleSaveComanda('Concluido', true)}
+                  onClick={() => handleSaveComanda('Concluido', false)}
                   className="w-full flex items-center justify-center gap-2 bg-[#e5b35f] hover:bg-[#eed093] text-black font-sans font-black text-xs py-3 rounded-full transition cursor-pointer uppercase shadow disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Concluir e Enviar WhatsApp</span>
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Concluir Comanda</span>
                 </button>
 
                 <button
                   type="button"
                   disabled={isReadOnly}
                   title={isReadOnly ? TOOLTIP_READONLY : undefined}
-                  onClick={() => handleSaveComanda('Concluido', false)}
+                  onClick={() => handleSaveComanda('Concluido', true)}
                   className="w-full flex items-center justify-center gap-2 bg-stone-900 border border-stone-700 hover:bg-stone-850 text-white font-sans font-bold text-xs py-3 rounded-full transition cursor-pointer uppercase shadow disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#eed093]" />
-                  <span>Apenas Concluir Comanda</span>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Concluir e Enviar WhatsApp</span>
                 </button>
 
                 <button

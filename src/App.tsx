@@ -29,7 +29,8 @@ import { getTenantStatus, getDaysRemaining, GRACE_PERIOD_DAYS, type TenantStatus
 import { 
   Scissors, Calendar, FileText, Wallet, Settings, LogOut, 
   UserCheck, Building, HelpCircle, Key, Phone, CheckSquare, Sparkles, Building2,
-  Menu, X, BarChart3, ShieldCheck, ShieldAlert, AlertCircle, CreditCard, Info
+  Menu, X, BarChart3, ShieldCheck, ShieldAlert, AlertCircle, CreditCard, Info,
+  RefreshCw, MessageCircle
 } from 'lucide-react';
 
 // Subcomponents
@@ -63,6 +64,13 @@ export default function App() {
   useEffect(() => {
     currentSalonRef.current = currentSalon;
   }, [currentSalon]);
+
+  // Persist active tab for session restore on refresh
+  useEffect(() => {
+    if (userRole !== null) {
+      localStorage.setItem('auth_lastRoute', activeTab);
+    }
+  }, [activeTab, userRole]);
 
   // Login Input fields
   const [loginCNPJ, setLoginCNPJ] = useState('');
@@ -207,6 +215,62 @@ export default function App() {
 
       // Run 2026 professionals migration
       runProfessionalsMigration2026();
+
+      // Restore persisted session after data is loaded
+      const savedRole = localStorage.getItem('auth_userRole');
+      if (savedRole && userRoleRef.current === null) {
+        const allSalons = loadSalons();
+        const allProfs = loadProfessionals();
+
+        if (savedRole === 'ADMIN') {
+          const savedSalonId = localStorage.getItem('auth_currentSalonId');
+          const savedProfId = localStorage.getItem('auth_currentProfessionalId');
+          if (savedSalonId) {
+            const salon = allSalons.find(s => s.id === savedSalonId);
+            if (salon) {
+              setCurrentSalon(salon);
+              setUserRole('ADMIN');
+              setProfessionals(loadProfessionals(salon.id));
+              setServices(loadServices(salon.id));
+              setProducts(loadProducts(salon.id));
+              setClients(loadClients(salon.id));
+              setComandas(loadComandas(salon.id));
+              setFinancials(loadFinancials(salon.id));
+              setAppointments(loadAppointments(salon.id));
+              setCharts(loadCharts(salon.id));
+              setServiceCategories(loadServiceCategories(salon.id));
+              setCardAcquirers(loadCardAcquirers(salon.id));
+              if (savedProfId) {
+                const prof = allProfs.find(p => p.id === savedProfId && p.salonId === salon.id);
+                if (prof) setCurrentProfessional(prof);
+              }
+            }
+          }
+        } else if (savedRole === 'PROFESSIONAL') {
+          const savedProfId = localStorage.getItem('auth_currentProfessionalId');
+          if (savedProfId) {
+            const prof = allProfs.find(p => p.id === savedProfId);
+            if (prof) {
+              setCurrentProfessional(prof);
+              const salon = allSalons.find(s => s.id === prof.salonId);
+              if (salon) setCurrentSalon(salon);
+              setUserRole('PROFESSIONAL');
+              setComandas(loadComandas(prof.salonId));
+            }
+          }
+        } else if (savedRole === 'SAAS_ADMIN') {
+          setUserRole('SAAS_ADMIN');
+          setSalons(allSalons);
+          setProfessionals(allProfs);
+        }
+
+        // Restore last active tab
+        const savedTab = localStorage.getItem('auth_lastRoute');
+        const validTabs: Array<string> = ['dashboard', 'agendamentos', 'comandas', 'financeiro', 'relatorios', 'colecoes', 'configuracoes'];
+        if (savedTab && validTabs.includes(savedTab)) {
+          setActiveTab(savedTab as typeof activeTab);
+        }
+      }
     };
 
     fetchAndInitialize();
@@ -1130,6 +1194,12 @@ export default function App() {
         setUserRole('ADMIN');
         setCurrentProfessional(loggedAdmin);
 
+        // Persist session
+        localStorage.setItem('auth_userRole', 'ADMIN');
+        localStorage.setItem('auth_currentSalonId', foundSalon.id);
+        localStorage.setItem('auth_currentProfessionalId', loggedAdmin.id);
+        localStorage.setItem('auth_lastRoute', 'dashboard');
+
         // Load specific tenant sandbox arrays
         setProfessionals(loadProfessionals(foundSalon.id));
         setServices(loadServices(foundSalon.id));
@@ -1171,6 +1241,12 @@ export default function App() {
         }
         setCurrentProfessional(foundProf);
         setUserRole('PROFESSIONAL');
+
+        // Persist session
+        localStorage.setItem('auth_userRole', 'PROFESSIONAL');
+        if (matchSalon) localStorage.setItem('auth_currentSalonId', matchSalon.id);
+        localStorage.setItem('auth_currentProfessionalId', foundProf.id);
+        localStorage.setItem('auth_lastRoute', 'dashboard');
         
         // Load comanda history for professional stats comparison
         setComandas(loadComandas(matchSalon?.id));
@@ -1216,6 +1292,52 @@ export default function App() {
     setLoginAdminPhone('');
     setLoginPhone('');
     setLoginPassword('');
+    // Clear persisted session
+    localStorage.removeItem('auth_userRole');
+    localStorage.removeItem('auth_currentSalonId');
+    localStorage.removeItem('auth_currentProfessionalId');
+    localStorage.removeItem('auth_lastRoute');
+  };
+
+  // App version for support reference
+  const APP_VERSION = 'v1.1.0 (07/07/2026)';
+
+  const handleClearCacheAndReload = async () => {
+    if (!window.confirm('Tem certeza que deseja limpar o cache do sistema?\n\nIsso irá recarregar a aplicação com a versão mais recente. Sua sessão será mantida.')) return;
+
+    // Preserve auth keys before clearing
+    const authKeys = ['auth_userRole', 'auth_currentSalonId', 'auth_currentProfessionalId', 'auth_lastRoute'];
+    const savedAuth: Record<string, string> = {};
+    for (const key of authKeys) {
+      const val = localStorage.getItem(key);
+      if (val) savedAuth[key] = val;
+    }
+
+    // Clear service workers
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(r => r.unregister()));
+    }
+
+    // Clear cache storage
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+
+    // Clear session storage
+    sessionStorage.clear();
+
+    // Clear localStorage except auth keys
+    localStorage.clear();
+
+    // Restore auth keys so session survives reload
+    for (const [key, val] of Object.entries(savedAuth)) {
+      localStorage.setItem(key, val);
+    }
+
+    console.log('[Cache Clear] Cache limpo com sucesso. Sessão preservada.');
+    window.location.reload();
   };
 
   const handleSaaSLoginSubmit = async (e: React.FormEvent) => {
@@ -1234,6 +1356,13 @@ export default function App() {
         setUserRole('SAAS_ADMIN');
         setSalons(loadSalons());
         setProfessionals(loadProfessionals());
+
+        // Persist session
+        localStorage.setItem('auth_userRole', 'SAAS_ADMIN');
+        localStorage.removeItem('auth_currentSalonId');
+        localStorage.removeItem('auth_currentProfessionalId');
+        localStorage.setItem('auth_lastRoute', 'dashboard');
+
         registerLoginSuccess();
         return;
       }
@@ -1469,6 +1598,37 @@ export default function App() {
 
             </>
           )}
+        </div>
+
+        {/* Help & Support section */}
+        <div className="w-full max-w-md space-y-3 mt-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-stone-200/60 p-5 space-y-4">
+            <h3 className="text-[10px] uppercase font-black tracking-widest text-stone-400 text-center">
+              Ajuda
+            </h3>
+
+            <button
+              onClick={handleClearCacheAndReload}
+              className="w-full flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Atualizar Sistema</span>
+            </button>
+
+            <a
+              href="https://wa.me/5581999982848?text=Ol%C3%A1!%0A%0AEstou%20precisando%20de%20ajuda%20com%20o%20Gest%C3%A3o%20Modello.%0A%0AMeu%20sal%C3%A3o%20%C3%A9%3A"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span>Falar com o Suporte</span>
+            </a>
+
+            <p className="text-[9px] text-stone-400 text-center font-mono">
+              Versão: {APP_VERSION}
+            </p>
+          </div>
         </div>
 
         {/* Footer info lock down */}
