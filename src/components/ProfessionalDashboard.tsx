@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Comanda, Professional, Salon } from '../types';
-import { formatCurrency, getMonthName } from '../utils';
+import { formatCurrency, getMonthName, getComissaoReferenceDate } from '../utils';
 import { Award, Scissors, Percent, FileText, Calendar, Filter, Users, Download } from 'lucide-react';
 import GestaoModelloLogo from './GestaoModelloLogo';
 
@@ -21,15 +21,17 @@ export default function ProfessionalDashboard({
   const [selectedMonth, setSelectedMonth] = useState((new Date()).getMonth());
   const [selectedYear, setSelectedYear] = useState(2026);
 
-  // Filter comandas finished by this professional on selected period
+  const commissionAccrualRule = salon?.commissionAccrualRule ?? 'caixa';
+
   const professionalServices = comandas
     .filter(c => c.status === 'Concluido')
-    .flatMap(c => 
+    .flatMap(c =>
       c.services
         .filter(s => s.professionalId === professional.id)
         .map(s => {
-          // Parse comanda paymentDate
-          const pDate = c.paymentDate ? new Date(c.paymentDate) : new Date();
+          const refDate = getComissaoReferenceDate(c, commissionAccrualRule);
+          if (!refDate) return null;
+          const pDate = new Date(refDate);
           return {
             comandaId: c.id,
             ticketNumber: c.ticketNumber,
@@ -38,14 +40,15 @@ export default function ProfessionalDashboard({
             totalPrice: s.price,
             commissionRate: s.commissionRate,
             commissionValue: s.commissionValue,
-            paymentDate: c.paymentDate || c.dateCreated.substring(0, 10),
+            paymentDate: refDate,
             paymentDateObj: pDate,
             commissionPaid: s.commissionPaid || false
           };
         })
     )
+    .filter((item): item is NonNullable<typeof item> => item !== null)
     .filter(item => {
-      return item.paymentDateObj.getMonth() === selectedMonth && 
+      return item.paymentDateObj.getMonth() === selectedMonth &&
              item.paymentDateObj.getFullYear() === selectedYear;
     });
 

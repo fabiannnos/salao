@@ -61,6 +61,16 @@ export function getMonthName(monthIndex: number): string {
   return months[monthIndex] || '';
 }
 
+export function getComissaoReferenceDate(
+  comanda: { dateCreated?: string; paymentDate?: string },
+  rule: 'competencia' | 'caixa'
+): string {
+  if (rule === 'caixa') {
+    return comanda.paymentDate || '';
+  }
+  return (comanda.dateCreated || '').split('T')[0];
+}
+
 export function exportToCSV(data: any[], filename: string) {
   if (data.length === 0) return;
   const headers = Object.keys(data[0]).join(',');

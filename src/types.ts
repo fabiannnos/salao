@@ -19,6 +19,7 @@ export interface Salon {
   cardFeePercentProfDeduct?: number;
   logoUrl?: string;
   planValue?: number;
+  commissionAccrualRule?: 'competencia' | 'caixa';
 }
 
 // Configuração de PIX por tenant — vive EXCLUSIVAMENTE na tabela

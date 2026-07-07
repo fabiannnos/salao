@@ -13,7 +13,8 @@ export const initialSalons: Salon[] = [
     maxAdmins: 2,
     expirationDate: "2026-12-31",
     isActive: true,
-    planValue: 120
+    planValue: 120,
+    commissionAccrualRule: 'caixa'
   }
 ];
 

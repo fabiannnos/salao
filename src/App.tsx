@@ -1860,6 +1860,7 @@ export default function App() {
             onNavigateToTab={(tab) => {
               if (!isTabBlocked(tab)) setActiveTab(tab as any);
             }}
+            commissionAccrualRule={currentSalon.commissionAccrualRule ?? 'caixa'}
           />
         )}
 
@@ -1912,6 +1913,7 @@ export default function App() {
             onSettleDebt={handleSettleDebtObj}
             onUpdateComandaObj={handleUpdateComandaObj}
             isReadOnly={isReadOnly}
+            commissionAccrualRule={currentSalon.commissionAccrualRule ?? 'caixa'}
           />
         )}
 

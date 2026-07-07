@@ -1009,6 +1009,83 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_admins integer DEFAULT 3;`}
             </div>
           </div>
 
+          {/* 2.5 Configuração Financeira - Regime de Competência */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200/60 shadow-sm space-y-6">
+            <div className="border-b border-gray-100 pb-3">
+              <h4 className="font-serif font-bold text-gray-900 text-sm flex items-center gap-2">
+                <Settings className="w-4 h-4 text-[#a0854c]" />
+                Financeiro
+              </h4>
+              <p className="text-[11px] text-stone-400 mt-0.5">Defina o regime de apuração das comissões dos profissionais.</p>
+            </div>
+
+            <div className="space-y-3.5 p-3.5 bg-[#FAF8F5] rounded-xl border border-stone-205/70 shadow-2xs">
+              <div>
+                <label className="block text-stone-750 font-extrabold text-[9.5px] uppercase mb-1 tracking-wider">
+                  Regime de Apuração de Comissões
+                </label>
+                <p className="text-[9.5px] text-stone-500 leading-relaxed mb-3">
+                  Escolha quando a comissão deve ser considerada para fechamento mensal.
+                </p>
+
+                <div className="space-y-2.5">
+                  <label className="flex items-start gap-3 p-3 bg-white rounded-lg border border-stone-200 cursor-pointer hover:border-stone-300 transition">
+                    <input
+                      type="radio"
+                      name="commissionAccrualRule"
+                      className="mt-0.5 accent-stone-800 cursor-pointer"
+                      checked={(currentSalon.commissionAccrualRule ?? 'caixa') === 'caixa'}
+                      onChange={() => {
+                        if (onUpdateSalon) {
+                          onUpdateSalon({
+                            ...currentSalon,
+                            commissionAccrualRule: 'caixa'
+                          });
+                        }
+                      }}
+                    />
+                    <div>
+                      <span className="font-bold text-stone-900 text-[11px] block">Data do Pagamento (Caixa)</span>
+                      <span className="text-[10px] text-stone-500 leading-relaxed">
+                        A comissão é contabilizada no mês em que o cliente efetua o pagamento da comanda. Comandas não pagas não aparecem no fechamento.
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 p-3 bg-white rounded-lg border border-stone-200 cursor-pointer hover:border-stone-300 transition">
+                    <input
+                      type="radio"
+                      name="commissionAccrualRule"
+                      className="mt-0.5 accent-stone-800 cursor-pointer"
+                      checked={(currentSalon.commissionAccrualRule ?? 'caixa') === 'competencia'}
+                      onChange={() => {
+                        if (onUpdateSalon) {
+                          onUpdateSalon({
+                            ...currentSalon,
+                            commissionAccrualRule: 'competencia'
+                          });
+                        }
+                      }}
+                    />
+                    <div>
+                      <span className="font-bold text-stone-900 text-[11px] block">Data do Serviço (Competência)</span>
+                      <span className="text-[10px] text-stone-500 leading-relaxed">
+                        A comissão é contabilizada no mês em que o serviço foi realizado, independentemente de quando for pago.
+                      </span>
+                    </div>
+                  </label>
+
+                  <div className="text-[9.5px] text-stone-300 bg-stone-900 p-3 rounded-lg font-mono flex items-center gap-1.5 leading-snug">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span>
+                      Comissões filtradas por: <strong className="text-[#eed093]">{(currentSalon.commissionAccrualRule ?? 'caixa') === 'caixa' ? 'Data do Pagamento (Caixa)' : 'Data do Serviço (Competência)'}</strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* 3. Configuração PIX */}
           <div className="bg-white p-6 rounded-xl border border-gray-200/60 shadow-sm space-y-6">
             <div className="border-b border-gray-100 pb-3">

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FinancialRecord, Comanda, ChartAccountGroup, Professional } from '../types';
-import { formatCurrency, exportToCSV } from '../utils';
+import { formatCurrency, exportToCSV, getComissaoReferenceDate } from '../utils';
 import { 
   TrendingUp, 
   Wallet, 
@@ -220,6 +220,7 @@ interface FinanceiroDashboardProps {
   onDeleteFinancialRecord: (id: string) => void;
   onUpdateComandaObj: (comanda: Comanda) => void;
   isReadOnly?: boolean;
+  commissionAccrualRule?: 'competencia' | 'caixa';
 }
 
 export default function FinanceiroDashboard({
@@ -233,7 +234,8 @@ export default function FinanceiroDashboard({
   onSettleDebt,
   onDeleteFinancialRecord,
   onUpdateComandaObj,
-  isReadOnly = false
+  isReadOnly = false,
+  commissionAccrualRule = 'caixa'
 }: FinanceiroDashboardProps) {
   const TOOLTIP_READONLY = "Plano expirado. Renove para voltar a realizar alterações.";
   // Selected period
@@ -318,7 +320,11 @@ export default function FinanceiroDashboard({
   };
 
   const getCommissionItems = () => {
-    const periodComandas = comandas.filter(c => c.status === 'Concluido' && dateInPeriod(c.dateCreated || c.paymentDate));
+    const periodComandas = comandas.filter(c => {
+      if (c.status !== 'Concluido') return false;
+      const refDate = getComissaoReferenceDate(c, commissionAccrualRule);
+      return dateInPeriod(refDate);
+    });
     
     const items: {
       key: string;
@@ -360,7 +366,7 @@ export default function FinanceiroDashboard({
              itemIndex: sIdx,
              ticketNumber: c.ticketNumber,
              clientName: c.clientName,
-             date: c.dateCreated || c.paymentDate || '',
+             date: getComissaoReferenceDate(c, commissionAccrualRule),
              name: s.name,
              type: 'servico',
              price: s.price,
@@ -396,7 +402,7 @@ export default function FinanceiroDashboard({
                 itemIndex: pIdx,
                 ticketNumber: c.ticketNumber,
                 clientName: c.clientName,
-                date: c.dateCreated || c.paymentDate || '',
+                date: getComissaoReferenceDate(c, commissionAccrualRule),
                 name: p.name,
                 type: 'produto',
                 price: p.price,

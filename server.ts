@@ -478,7 +478,8 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
       stripe_subscription_id: t.stripe_subscription_id || null,
       last_payment_date: t.last_payment_date || null,
       billing_status: t.billing_status || null,
-      plan_value: t.planValue !== undefined ? t.planValue : 120.00
+      plan_value: t.planValue !== undefined ? t.planValue : 120.00,
+      commission_accrual_rule: t.commissionAccrualRule || 'caixa'
     });
 
     const mapProfessional = (p: any) => ({
@@ -791,7 +792,8 @@ app.get("/api/supa-pull", async (req, res) => {
       isActive: t.is_active !== undefined ? t.is_active : true,
       cardFeePercentProfDeduct: t.card_fee_percent_prof_deduct ?? 0,
       logoUrl: t.logo_url || "",
-      planValue: t.plan_value !== undefined ? t.plan_value : 120.00
+      planValue: t.plan_value !== undefined ? t.plan_value : 120.00,
+      commissionAccrualRule: t.commission_accrual_rule || 'caixa'
     }));
 
     const professionals = (dbProfessionals || []).map((p: any) => ({

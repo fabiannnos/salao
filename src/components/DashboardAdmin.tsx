@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Comanda, FinancialRecord, Professional, Appointment } from '../types';
-import { formatCurrency } from '../utils';
+import { formatCurrency, getComissaoReferenceDate } from '../utils';
 import { ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import { 
   TrendingUp, 
@@ -22,6 +22,7 @@ interface DashboardAdminProps {
   professionals: Professional[];
   appointments: Appointment[];
   onNavigateToTab: (tab: string) => void;
+  commissionAccrualRule?: 'competencia' | 'caixa';
 }
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
@@ -32,7 +33,8 @@ export default function DashboardAdmin({
   financials,
   professionals,
   appointments,
-  onNavigateToTab
+  onNavigateToTab,
+  commissionAccrualRule = 'caixa'
 }: DashboardAdminProps) {
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1; // 1-indexed
@@ -106,6 +108,18 @@ export default function DashboardAdmin({
     }
   });
 
+  const commissionComandas = comandas.filter(c => {
+    if (c.status !== 'Concluido') return false;
+    const refDate = getComissaoReferenceDate(c, commissionAccrualRule);
+    if (!refDate) return false;
+    try {
+      const { year, month } = getRecordDateDetails(refDate);
+      return year === selectedYear && month === selectedMonth;
+    } catch {
+      return false;
+    }
+  });
+
   // Calculate accounts payable (Contas a Pagar em Aberto)
   // For safety, look at either general status pending or overdue
   const contasAPagarAberto = monthlyFinancials.filter(f => f.type === 'despesa' && f.status === 'pendente' && !(f.category === 'Comissão' || f.category === 'Pessoal / Comissões' || f.category?.toLowerCase()?.includes('comis')));
@@ -142,16 +156,14 @@ export default function DashboardAdmin({
     let totalGenerated = 0;
     let earnedCommission = 0;
 
-    monthlyComandas.forEach(c => {
-      if (c.status === 'Concluido') {
-        c.services.forEach(s => {
-          if (s.professionalId === p.id) {
-            servicesCount += 1;
-            totalGenerated += s.price;
-            earnedCommission += s.commissionValue;
-          }
-        });
-      }
+    commissionComandas.forEach(c => {
+      c.services.forEach(s => {
+        if (s.professionalId === p.id) {
+          servicesCount += 1;
+          totalGenerated += s.price;
+          earnedCommission += s.commissionValue;
+        }
+      });
     });
 
     return {
