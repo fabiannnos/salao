@@ -1308,7 +1308,7 @@ export default function ComandasKanban({
 
                                 <div className="grid grid-cols-2 gap-2">
                                   <div>
-                                    <label className="block text-[9px] text-stone-400 font-bold uppercase mb-0.5">Data do Atendimento / Competência</label>
+                                    <label className="block text-[9px] text-stone-400 font-bold uppercase mb-0.5">Data do Atendimento</label>
                                     <input
                                       type="date"
                                       className="w-full bg-white border border-stone-300 rounded p-1.5 text-xs focus:outline-none"
