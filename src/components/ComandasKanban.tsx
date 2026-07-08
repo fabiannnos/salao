@@ -813,6 +813,13 @@ export default function ComandasKanban({
     // config PIX. Garante que o QR persistido bate com o exibido.
     const pixPayloadForStore = methodStr === 'Pix' ? pixBRCode : undefined;
     onUpdateStatus(comandaId, 'Concluido', methodStr, isFiadoType, cardDetails, pixPayloadForStore);
+    // Persist user-defined competenceDate and paymentDate (updateComandaStatus sets paymentDate to today)
+    const todayStr = new Date().toISOString().split('T')[0];
+    onUpdateComandaObj({
+      ...comanda,
+      competenceDate: editCompetenceDate || comanda.competenceDate || todayStr,
+      paymentDate: editPaymentDate || todayStr
+    });
     setActiveCheckoutComandaId(null);
     triggerToast(`Comanda faturada com sucesso via ${cardPaymentMethod}!`);
 
@@ -1299,6 +1306,27 @@ export default function ComandasKanban({
                                   <option value="Duplicata">Duplicata (Anotar p/ final do mês)</option>
                                 </select>
 
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-[9px] text-stone-400 font-bold uppercase mb-0.5">Data do Atendimento / Competência</label>
+                                    <input
+                                      type="date"
+                                      className="w-full bg-white border border-stone-300 rounded p-1.5 text-xs focus:outline-none"
+                                      value={editCompetenceDate}
+                                      onChange={(e) => setEditCompetenceDate(e.target.value)}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[9px] text-stone-400 font-bold uppercase mb-0.5">Data do Pagamento</label>
+                                    <input
+                                      type="date"
+                                      className="w-full bg-white border border-stone-300 rounded p-1.5 text-xs focus:outline-none"
+                                      value={editPaymentDate}
+                                      onChange={(e) => setEditPaymentDate(e.target.value)}
+                                    />
+                                  </div>
+                                </div>
+
                                 {(cardPaymentMethod === 'Cartão Credito' || cardPaymentMethod === 'Cartão Debito') && (
                                   <div className="bg-white p-2.5 rounded-lg border border-stone-200 space-y-2 text-[11px] text-stone-700">
                                     <div className="grid grid-cols-2 gap-2">
@@ -1566,6 +1594,9 @@ export default function ComandasKanban({
                                   const initialMethod = c.isFiado ? 'Duplicata' : (c.paymentMethod === 'Caderno' ? 'Duplicata' : (c.paymentMethod || 'Pix'));
                                   setCardPaymentMethod(initialMethod as any);
                                   setActiveCheckoutComandaId(c.id);
+                                  const today = new Date().toISOString().split('T')[0];
+                                  setEditCompetenceDate(c.competenceDate || today);
+                                  setEditPaymentDate(c.paymentDate || today);
                                 }}
                                 className="w-full bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 font-bold py-1.5 px-2 rounded-lg transition text-[11px] uppercase tracking-wide cursor-pointer"
                               >

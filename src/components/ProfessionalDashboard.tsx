@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Comanda, Professional, Salon } from '../types';
 import { formatCurrency, getMonthName, getComissaoReferenceDate, formatDateBR } from '../utils';
-import { Award, Scissors, Percent, FileText, Calendar, Filter, Users, Download } from 'lucide-react';
+import { Award, Scissors, Percent, FileText, Calendar, Filter, Users, Download, Search } from 'lucide-react';
 import GestaoModelloLogo from './GestaoModelloLogo';
 
 interface ProfessionalDashboardProps {
@@ -20,6 +20,7 @@ export default function ProfessionalDashboard({
   // Filters values
   const [selectedMonth, setSelectedMonth] = useState((new Date()).getMonth());
   const [selectedYear, setSelectedYear] = useState(2026);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const commissionAccrualRule = salon?.commissionAccrualRule ?? 'caixa';
 
@@ -50,6 +51,18 @@ export default function ProfessionalDashboard({
     .filter(item => {
       return item.paymentDateObj.getMonth() === selectedMonth &&
              item.paymentDateObj.getFullYear() === selectedYear;
+    })
+    .filter(item => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return item.clientName.toLowerCase().includes(q) ||
+             item.ticketNumber.toLowerCase().includes(q) ||
+             item.serviceName.toLowerCase().includes(q);
+    })
+    .sort((a, b) => {
+      const dateCmp = a.paymentDate.localeCompare(b.paymentDate);
+      if (dateCmp !== 0) return dateCmp;
+      return a.ticketNumber.localeCompare(b.ticketNumber);
     });
 
   // Calculate metrics
@@ -275,11 +288,24 @@ export default function ProfessionalDashboard({
             </span>
           </div>
 
+          <div className="px-8 py-3 border-b border-gray-100 bg-white">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-450 w-4 h-4" />
+              <input
+                type="text"
+                className="w-full pl-9 pr-4 py-2 bg-[#FCF9F2] text-xs border border-gray-250 rounded-lg focus:border-gold-500 focus:outline-none"
+                placeholder="Buscar por cliente, código da comanda ou serviço..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse font-sans">
               <thead>
                 <tr className="bg-slate-50 border-b border-gray-200 font-sans">
-                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest">Data Lanc.</th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest">Data Referência</th>
                   <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest">Código da Comanda</th>
                   <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest">Cliente</th>
                   <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest">Serviço Prestado</th>

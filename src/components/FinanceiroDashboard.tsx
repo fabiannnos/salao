@@ -944,8 +944,12 @@ export default function FinanceiroDashboard({
           ? 'Pagos' 
           : 'Pendentes';
 
-      const rowsHtml = commissionItems.map(item => {
-        const dateFormatted = formatToDayMonth(item.date);
+      const rowsHtml = [...commissionItems].sort((a, b) => {
+        const dateCmp = a.date.toLowerCase().localeCompare(b.date.toLowerCase());
+        if (dateCmp !== 0) return dateCmp;
+        return a.ticketNumber.toLowerCase().localeCompare(b.ticketNumber.toLowerCase());
+      }).map(item => {
+        const dateFormatted = formatDateBR(item.date);
         const typeLabel = item.type === 'servico' ? 'Serviço' : 'Produto';
         const statusClass = item.paid ? 'status-badge status-pago' : 'status-badge status-pendente';
         const statusText = item.paid ? 'Pago' : 'Pendente';
@@ -1963,7 +1967,14 @@ export default function FinanceiroDashboard({
             }
           };
 
-          const sortedCommissionItems = !sortColumn || !sortDirection ? commissionItems : [...commissionItems].sort((a, b) => {
+          const defaultSort = (a: typeof commissionItems[0], b: typeof commissionItems[0]) => {
+            const dateCmp = a.date.toLowerCase().localeCompare(b.date.toLowerCase());
+            if (dateCmp !== 0) return dateCmp;
+            return a.ticketNumber.toLowerCase().localeCompare(b.ticketNumber.toLowerCase());
+          };
+          const sortedCommissionItems = !sortColumn || !sortDirection
+            ? [...commissionItems].sort(defaultSort)
+            : [...commissionItems].sort((a, b) => {
             const valA = a[sortColumn as keyof typeof a];
             const valB = b[sortColumn as keyof typeof b];
             if (typeof valA === 'string' && typeof valB === 'string') {
@@ -2298,7 +2309,7 @@ export default function FinanceiroDashboard({
                               )}
                             </td>
                             <td className="px-5 py-3.5 text-stone-500 font-mono">
-                              {item.date ? new Date(item.date).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'}) : '---'}
+                              {formatDateBR(item.date)}
                             </td>
                             <td className="px-5 py-3.5 font-bold font-mono text-stone-800">{item.ticketNumber}</td>
                             <td className="px-5 py-3.5 font-semibold text-stone-900">{item.clientName}</td>
@@ -2898,10 +2909,14 @@ export default function FinanceiroDashboard({
                             </td>
                           </tr>
                         ) : (
-                          commissionItems.map(item => (
+                          [...commissionItems].sort((a, b) => {
+                            const dateCmp = a.date.toLowerCase().localeCompare(b.date.toLowerCase());
+                            if (dateCmp !== 0) return dateCmp;
+                            return a.ticketNumber.toLowerCase().localeCompare(b.ticketNumber.toLowerCase());
+                          }).map(item => (
                             <tr key={item.key}>
                               <td className="px-3 py-3 font-mono text-stone-500">
-                                {formatToDayMonth(item.date)}
+                                {formatDateBR(item.date)}
                               </td>
                               <td className="px-3 py-3 font-semibold text-stone-850">{item.ticketNumber}</td>
                               <td className="px-3 py-3 text-stone-700">{item.clientName}</td>
