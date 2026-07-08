@@ -17,10 +17,12 @@ export default function ProfessionalDashboard({
   salon,
   onLogout
 }: ProfessionalDashboardProps) {
-  // Filters values
+  // Filters & sort values
   const [selectedMonth, setSelectedMonth] = useState((new Date()).getMonth());
   const [selectedYear, setSelectedYear] = useState(2026);
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
 
   const commissionAccrualRule = salon?.commissionAccrualRule ?? 'caixa';
 
@@ -32,7 +34,8 @@ export default function ProfessionalDashboard({
         .map(s => {
           const refDate = getComissaoReferenceDate(c, commissionAccrualRule);
           if (!refDate) return null;
-          const pDate = new Date(refDate);
+          const parts = refDate.split('-');
+          const refDateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
           return {
             comandaId: c.id,
             ticketNumber: c.ticketNumber,
@@ -41,16 +44,16 @@ export default function ProfessionalDashboard({
             totalPrice: s.price,
             commissionRate: s.commissionRate,
             commissionValue: s.commissionValue,
-            paymentDate: refDate,
-            paymentDateObj: pDate,
+            refDate: refDate,
+            refDateObj: refDateObj,
             commissionPaid: s.commissionPaid || false
           };
         })
     )
     .filter((item): item is NonNullable<typeof item> => item !== null)
     .filter(item => {
-      return item.paymentDateObj.getMonth() === selectedMonth &&
-             item.paymentDateObj.getFullYear() === selectedYear;
+      return item.refDateObj.getMonth() === selectedMonth &&
+             item.refDateObj.getFullYear() === selectedYear;
     })
     .filter(item => {
       if (!searchQuery) return true;
@@ -58,12 +61,45 @@ export default function ProfessionalDashboard({
       return item.clientName.toLowerCase().includes(q) ||
              item.ticketNumber.toLowerCase().includes(q) ||
              item.serviceName.toLowerCase().includes(q);
-    })
-    .sort((a, b) => {
-      const dateCmp = a.paymentDate.localeCompare(b.paymentDate);
-      if (dateCmp !== 0) return dateCmp;
-      return a.ticketNumber.localeCompare(b.ticketNumber);
     });
+
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      if (sortDirection === 'asc') setSortDirection('desc');
+      else if (sortDirection === 'desc') { setSortColumn(null); setSortDirection(null); }
+      else setSortDirection('asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortIndicator = (col: string) => {
+    if (sortColumn !== col) return '';
+    return sortDirection === 'asc' ? ' ▲' : ' ▼';
+  };
+
+  const sortedServices = !sortColumn || !sortDirection
+    ? [...professionalServices].sort((a, b) => {
+        const dateCmp = a.refDate.localeCompare(b.refDate);
+        if (dateCmp !== 0) return dateCmp;
+        return a.ticketNumber.localeCompare(b.ticketNumber);
+      })
+    : [...professionalServices].sort((a, b) => {
+        const sortVal = (valA: any, valB: any): number => {
+          if (typeof valA === 'string' && typeof valB === 'string') {
+            const c = valA.toLowerCase().localeCompare(valB.toLowerCase());
+            return sortDirection === 'asc' ? c : -c;
+          }
+          if (typeof valA === 'boolean' && typeof valB === 'boolean') {
+            return sortDirection === 'asc' ? (valA ? 1 : -1) : (valA ? -1 : 1);
+          }
+          const numA = Number(valA) || 0;
+          const numB = Number(valB) || 0;
+          return sortDirection === 'asc' ? numA - numB : numB - numA;
+        };
+        return sortVal(a[sortColumn as keyof typeof a], b[sortColumn as keyof typeof b]);
+      });
 
   // Calculate metrics
   const totalServiceCount = professionalServices.length;
@@ -305,13 +341,13 @@ export default function ProfessionalDashboard({
             <table className="w-full text-left border-collapse font-sans">
               <thead>
                 <tr className="bg-slate-50 border-b border-gray-200 font-sans">
-                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest">Data Referência</th>
-                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest">Código da Comanda</th>
-                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest">Cliente</th>
-                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest">Serviço Prestado</th>
-                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest">Valor do Serviço</th>
-                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest text-center">Status</th>
-                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest text-right">Sua Comissão</th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest cursor-pointer hover:text-stone-600 select-none" onClick={() => handleSort('refDate')}>Data Referência<span className="text-stone-300 ml-0.5">{sortIndicator('refDate')}</span></th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest cursor-pointer hover:text-stone-600 select-none" onClick={() => handleSort('ticketNumber')}>Código da Comanda<span className="text-stone-300 ml-0.5">{sortIndicator('ticketNumber')}</span></th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest cursor-pointer hover:text-stone-600 select-none" onClick={() => handleSort('clientName')}>Cliente<span className="text-stone-300 ml-0.5">{sortIndicator('clientName')}</span></th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest cursor-pointer hover:text-stone-600 select-none" onClick={() => handleSort('serviceName')}>Serviço Prestado<span className="text-stone-300 ml-0.5">{sortIndicator('serviceName')}</span></th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest cursor-pointer hover:text-stone-600 select-none text-right" onClick={() => handleSort('totalPrice')}>Valor do Serviço<span className="text-stone-300 ml-0.5">{sortIndicator('totalPrice')}</span></th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest cursor-pointer hover:text-stone-600 select-none text-center" onClick={() => handleSort('commissionPaid')}>Status<span className="text-stone-300 ml-0.5">{sortIndicator('commissionPaid')}</span></th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-stone-400 uppercase tracking-widest cursor-pointer hover:text-stone-600 select-none text-right" onClick={() => handleSort('commissionValue')}>Sua Comissão<span className="text-stone-300 ml-0.5">{sortIndicator('commissionValue')}</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-xs font-sans">
@@ -322,10 +358,10 @@ export default function ProfessionalDashboard({
                     </td>
                   </tr>
                 ) : (
-                  professionalServices.map((item, index) => (
+                  sortedServices.map((item, index) => (
                     <tr key={index} className="hover:bg-gold-50/10 transition-colors">
                       <td className="px-8 py-5 text-stone-400 font-mono">
-                        {formatDateBR(item.paymentDate)}
+                        {formatDateBR(item.refDate)}
                       </td>
                       <td className="px-8 py-5">
                         <span className="bg-stone-100 text-stone-800 font-bold px-2 py-0.5 rounded text-[10px] font-mono">

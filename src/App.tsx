@@ -1300,7 +1300,7 @@ export default function App() {
   };
 
   // App version for support reference
-  const APP_VERSION = 'v1.1.1 (07/07/2026)';
+  const APP_VERSION = 'v1.1.3 (08/07/2026)';
 
   const handleClearCacheAndReload = async () => {
     if (!window.confirm('Tem certeza que deseja limpar o cache do sistema?\n\nIsso irá recarregar a aplicação com a versão mais recente. Sua sessão será mantida.')) return;

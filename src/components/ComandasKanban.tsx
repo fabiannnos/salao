@@ -2437,37 +2437,140 @@ export default function ComandasKanban({
 
               {/* Submission buttons */}
               <div className="space-y-3 pt-6 border-t border-stone-850">
-                <button
-                  type="button"
-                  disabled={isReadOnly}
-                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
-                  onClick={() => handleSaveComanda('Concluido', false)}
-                  className="w-full flex items-center justify-center gap-2 bg-[#e5b35f] hover:bg-[#eed093] text-black font-sans font-black text-xs py-3 rounded-full transition cursor-pointer uppercase shadow disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Concluir Comanda</span>
-                </button>
+                {(() => {
+                  const isEditing = !!editingComandaId;
+                  const currentStatus: string | undefined = isEditing ? comandas.find(c => c.id === editingComandaId)?.status : undefined;
+                  const isAberto = currentStatus === 'Aberto';
+                  const isEmAtendimento = currentStatus === 'Em Atendimento';
+                  const isConcluido = currentStatus === 'Concluido';
+                  const tooltipAberto = 'Esta comanda precisa estar "Em Atendimento" antes de ser concluída.';
 
-                <button
-                  type="button"
-                  disabled={isReadOnly}
-                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
-                  onClick={() => handleSaveComanda('Concluido', true)}
-                  className="w-full flex items-center justify-center gap-2 bg-stone-900 border border-stone-700 hover:bg-stone-850 text-white font-sans font-bold text-xs py-3 rounded-full transition cursor-pointer uppercase shadow disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Concluir e Enviar WhatsApp</span>
-                </button>
+                  if (isAberto) {
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          disabled={true}
+                          title={tooltipAberto}
+                          className="w-full flex items-center justify-center gap-2 bg-stone-700/50 text-stone-500 font-sans font-black text-xs py-3 rounded-full uppercase shadow cursor-not-allowed"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Concluir Comanda</span>
+                        </button>
 
-                <button
-                  type="button"
-                  disabled={isReadOnly}
-                  title={isReadOnly ? TOOLTIP_READONLY : undefined}
-                  onClick={() => handleSaveComanda('Aberto', false)}
-                  className="w-full flex items-center justify-center gap-1.5 bg-transparent border border-stone-800 hover:border-stone-500 text-stone-200 hover:text-white transition py-3.5 text-xs rounded-full cursor-pointer font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span>Abrir comanda provisoriamente</span>
-                </button>
+                        <button
+                          type="button"
+                          disabled={true}
+                          title={tooltipAberto}
+                          className="w-full flex items-center justify-center gap-2 bg-stone-800/50 text-stone-600 font-sans font-bold text-xs py-3 rounded-full uppercase shadow cursor-not-allowed"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Concluir e Enviar WhatsApp</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isReadOnly}
+                          title={isReadOnly ? TOOLTIP_READONLY : tooltipAberto}
+                          onClick={() => handleSaveComanda('Aberto', false)}
+                          className="w-full flex items-center justify-center gap-1.5 bg-transparent border border-stone-800 hover:border-stone-500 text-stone-200 hover:text-white transition py-3.5 text-xs rounded-full cursor-pointer font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <span>Salvar Alterações</span>
+                        </button>
+                      </>
+                    );
+                  }
+
+                  if (isEmAtendimento) {
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          disabled={isReadOnly}
+                          title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                          onClick={() => handleSaveComanda('Concluido', false)}
+                          className="w-full flex items-center justify-center gap-2 bg-[#e5b35f] hover:bg-[#eed093] text-black font-sans font-black text-xs py-3 rounded-full transition cursor-pointer uppercase shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Concluir Comanda</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isReadOnly}
+                          title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                          onClick={() => handleSaveComanda('Concluido', true)}
+                          className="w-full flex items-center justify-center gap-2 bg-stone-900 border border-stone-700 hover:bg-stone-850 text-white font-sans font-bold text-xs py-3 rounded-full transition cursor-pointer uppercase shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Concluir e Enviar WhatsApp</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isReadOnly}
+                          title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                          onClick={() => handleSaveComanda('Em Atendimento', false)}
+                          className="w-full flex items-center justify-center gap-1.5 bg-transparent border border-stone-800 hover:border-stone-500 text-stone-200 hover:text-white transition py-3.5 text-xs rounded-full cursor-pointer font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <span>Salvar Alterações</span>
+                        </button>
+                      </>
+                    );
+                  }
+
+                  if (isConcluido) {
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          disabled={true}
+                          title="Esta comanda já foi concluída."
+                          className="w-full flex items-center justify-center gap-2 bg-stone-700/50 text-stone-500 font-sans font-black text-xs py-3 rounded-full uppercase shadow cursor-not-allowed"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Concluir Comanda</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isReadOnly}
+                          title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                          onClick={() => handleSaveComanda('Concluido', true)}
+                          className="w-full flex items-center justify-center gap-2 bg-stone-900 border border-stone-700 hover:bg-stone-850 text-white font-sans font-bold text-xs py-3 rounded-full transition cursor-pointer uppercase shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Concluir e Enviar WhatsApp</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isReadOnly}
+                          title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                          onClick={() => handleSaveComanda('Concluido', false)}
+                          className="w-full flex items-center justify-center gap-1.5 bg-transparent border border-stone-800 hover:border-stone-500 text-stone-200 hover:text-white transition py-3.5 text-xs rounded-full cursor-pointer font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <span>Salvar Alterações</span>
+                        </button>
+                      </>
+                    );
+                  }
+
+                  // New comanda
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        disabled={isReadOnly}
+                        title={isReadOnly ? TOOLTIP_READONLY : undefined}
+                        onClick={() => handleSaveComanda('Aberto', false)}
+                        className="w-full flex items-center justify-center gap-2 bg-[#e5b35f] hover:bg-[#eed093] text-black font-sans font-black text-xs py-3 rounded-full transition cursor-pointer uppercase shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <span>Abrir Comanda</span>
+                      </button>
+                    </>
+                  );
+                })()}
               </div>
 
             </div>
