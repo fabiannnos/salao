@@ -56,7 +56,7 @@ export default function App() {
   const userRoleRef = useRef(userRole);
   const currentSalonRef = useRef(currentSalon);
   const isSyncingRef = useRef(false);
-  const performAutoSyncRef = useRef(performAutoSync);
+  const performAutoSyncRef = useRef<typeof performAutoSync | null>(null);
 
   useEffect(() => {
     userRoleRef.current = userRole;
@@ -506,15 +506,20 @@ export default function App() {
     }
   };
 
+  // Update ref after performAutoSync is defined to avoid temporal dead zone
+  useEffect(() => {
+    performAutoSyncRef.current = performAutoSync;
+  }, []);
+
   // 1. Agenda uma execução periódica em segundo plano a cada 45 segundos
   useEffect(() => {
     // Primeira sincronização após carregar os estados iniciais
     const initialSyncTimer = setTimeout(() => {
-      performAutoSync();
+      performAutoSyncRef.current?.();
     }, 3000);
 
     const intervalTimer = setInterval(() => {
-      performAutoSync();
+      performAutoSyncRef.current?.();
     }, 45000);
 
     return () => {
@@ -529,7 +534,7 @@ export default function App() {
     if (salons.length === 0) return;
 
     const delayDebounce = setTimeout(() => {
-      performAutoSync();
+      performAutoSyncRef.current?.();
     }, 5000);
 
     return () => clearTimeout(delayDebounce);
