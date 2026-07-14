@@ -73,6 +73,22 @@ export default function App() {
   // Active Admin workspace Tab
   const [activeTab, setActiveTab] = useState<'dashboard' | 'agendamentos' | 'comandas' | 'financeiro' | 'relatorios' | 'colecoes' | 'configuracoes'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [clearCacheConfirm, setClearCacheConfirm] = useState(false);
+
+  // Business data keys that must be preserved during cache clear
+  const BUSINESS_DATA_KEYS = [
+    'saas_salao_salons',
+    'saas_salao_professionals',
+    'saas_salao_services',
+    'saas_salao_products',
+    'saas_salao_clients',
+    'saas_salao_comandas',
+    'saas_salao_financials',
+    'saas_salao_appointments',
+    'saas_salao_charts',
+    'saas_salao_service_categories',
+    'saas_salao_card_acquirers',
+  ] as const;
 
   // Persist active tab for session restore on refresh
   useEffect(() => {
@@ -1363,7 +1379,24 @@ export default function App() {
   const APP_VERSION = 'v1.1.3 (08/07/2026)';
 
   const handleClearCacheAndReload = async () => {
-    if (!window.confirm('Tem certeza que deseja limpar o cache do sistema?\n\nIsso irá recarregar a aplicação com a versão mais recente. Sua sessão será mantida.')) return;
+    if (!clearCacheConfirm) {
+      setClearCacheConfirm(true);
+      setTimeout(() => setClearCacheConfirm(false), 3000);
+      return;
+    }
+    setClearCacheConfirm(false);
+
+    // 1. Forced sync before any cleanup
+    const hasSupabase = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (hasSupabase) {
+      try {
+        await performAutoSync(true);
+      } catch (syncErr) {
+        console.error('[Cache Clear] Sincronização falhou:', syncErr);
+        alert('Não foi possível sincronizar os dados. Atualização cancelada.');
+        return;
+      }
+    }
 
     // Preserve auth keys before clearing
     const authKeys = ['auth_userRole', 'auth_currentSalonId', 'auth_currentProfessionalId', 'auth_lastRoute'];
@@ -1371,6 +1404,13 @@ export default function App() {
     for (const key of authKeys) {
       const val = localStorage.getItem(key);
       if (val) savedAuth[key] = val;
+    }
+
+    // Also preserve business data keys
+    const savedBusiness: Record<string, string> = {};
+    for (const key of BUSINESS_DATA_KEYS) {
+      const val = localStorage.getItem(key);
+      if (val) savedBusiness[key] = val;
     }
 
     // Clear service workers
@@ -1388,15 +1428,19 @@ export default function App() {
     // Clear session storage
     sessionStorage.clear();
 
-    // Clear localStorage except auth keys
+    // Clear localStorage EXCEPT business data and auth keys
     localStorage.clear();
 
     // Restore auth keys so session survives reload
     for (const [key, val] of Object.entries(savedAuth)) {
       localStorage.setItem(key, val);
     }
+    // Restore business data keys
+    for (const [key, val] of Object.entries(savedBusiness)) {
+      localStorage.setItem(key, val);
+    }
 
-    console.log('[Cache Clear] Cache limpo com sucesso. Sessão preservada.');
+    console.log('[Cache Clear] Cache limpo com sucesso. Dados de negócio preservados. Sessão mantida.');
     window.location.reload();
   };
 
@@ -1669,11 +1713,21 @@ export default function App() {
 
             <button
               onClick={handleClearCacheAndReload}
-              className="w-full flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer"
+              className={`
+                w-full flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer
+                ${clearCacheConfirm ? 'bg-amber-700 hover:bg-amber-600 ring-2 ring-amber-400' : ''}
+              `}
             >
               <RefreshCw className="w-4 h-4" />
-              <span>Atualizar Sistema</span>
+              <span>{clearCacheConfirm ? 'Clique novamente para confirmar' : 'Limpar Cache e Atualizar'}</span>
             </button>
+
+            {clearCacheConfirm && (
+              <p className="text-[9px] text-amber-700 text-center bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
+                Esta ação irá atualizar arquivos temporários do sistema.<br />
+                Os dados do salão serão preservados.
+              </p>
+            )}
 
             <a
               href="https://wa.me/5581999982848?text=Ol%C3%A1!%0A%0AEstou%20precisando%20de%20ajuda%20com%20o%20Gest%C3%A3o%20Modello.%0A%0AMeu%20sal%C3%A3o%20%C3%A9%3A"
