@@ -46,7 +46,7 @@ app.use((req, res, next) => {
   if (req.path === "/api/webhook") {
     next();
   } else {
-    express.json()(req, res, next);
+    express.json({ limit: "50mb" })(req, res, next);
   }
 });
 

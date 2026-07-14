@@ -56,6 +56,7 @@ export default function App() {
   const userRoleRef = useRef(userRole);
   const currentSalonRef = useRef(currentSalon);
   const isSyncingRef = useRef(false);
+  const performAutoSyncRef = useRef(performAutoSync);
 
   useEffect(() => {
     userRoleRef.current = userRole;
@@ -64,6 +65,10 @@ export default function App() {
   useEffect(() => {
     currentSalonRef.current = currentSalon;
   }, [currentSalon]);
+
+  useEffect(() => {
+    performAutoSyncRef.current = performAutoSync;
+  });
 
   // Active Admin workspace Tab
   const [activeTab, setActiveTab] = useState<'dashboard' | 'agendamentos' | 'comandas' | 'financeiro' | 'relatorios' | 'colecoes' | 'configuracoes'>('dashboard');
@@ -461,24 +466,21 @@ export default function App() {
         },
         body: JSON.stringify(payload)
       });
+
+      if (!response.ok) {
+        console.warn(`[Background Sync] Servidor retornou status ${response.status} (${response.statusText}). Os dados permanecem guardados localmente.`);
+        return;
+      }
+
       const data = await response.json();
       if (data) {
         // Se o servidor retornou os dados atualizados reais dos inquilinos (salões), atualiza no estado e local storage!
         // Fazemos isso independente de data.success para garantir que as atualizações de licenças e limites corporativos nunca fiquem presas por erros em tabelas secundárias.
         if (Array.isArray(data.tenants)) {
-          // Merge server data with local PIX fields (server may strip unknown fields)
-          // Mas preserva expirationDate e isActive do local se o servidor ainda não refletir
-          // a extensão mais recente (ex: polling acabou de confirmar mas webhook ainda não persistiu).
-          const mergedTenants = data.tenants.map((serverSalon: any) => {
-            const localSalon = salons.find(s => s.id === serverSalon.id);
-            if (localSalon) {
-              return {
-                // Servidor é a fonte da verdade para TODOS os campos
-                ...serverSalon,
-              };
-            }
-            return serverSalon;
-          });
+          // Servidor é a fonte da verdade para TODOS os campos de tenant
+          const mergedTenants = data.tenants.map((serverSalon: any) => ({
+            ...serverSalon,
+          }));
           triggerUpdateSalons(mergedTenants);
           
           // Se houver um salão selecionado no momento, vamos atualizar a referência do currentSalon para refletir e exibir a nova data de expiração imediatamente!
@@ -1120,25 +1122,36 @@ export default function App() {
     }
   };
 
-  // AUTHENTICATION LOGIC
+// AUTHENTICATION LOGIC
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('[LOGIN DEBUG] ========== INÍCIO DO LOGIN ==========');
+    console.log('[LOGIN DEBUG] 1. CNPJ digitado (mascarado):', loginCNPJ ? loginCNPJ.replace(/\d/g, 'X') : 'VAZIO');
+    console.log('[LOGIN DEBUG] 2. CNPJ normalizado:', loginCNPJ ? loginCNPJ.replace(/\D/g, '') : 'VAZIO');
+    console.log('[LOGIN DEBUG] 3. Lista de TODOS os salões carregados:', salons.map(s => ({ id: s.id, name: s.name, cnpj: s.cnpj, isActive: s.isActive })));
+    console.log('[LOGIN DEBUG] loginType:', loginType, '| loginAdminPhone (mascarado):', loginAdminPhone ? loginAdminPhone.replace(/\d/g, 'X') : 'VAZIO');
     setLoginError(null);
-    if (checkLoginLock()) return;
+    if (checkLoginLock()) {
+      console.log('[LOGIN DEBUG] BLOQUEADO por rate limit');
+      return;
+    }
 
     // 1. Try Salon Admin Login with CNPJ, Admin Phone and Password
     if (loginType === 'ADMIN') {
       const cleanCNPJ = loginCNPJ.replace(/\D/g, '');
       const foundSalon = salons.find(s => s.cnpj.replace(/\D/g, '') === cleanCNPJ);
+      console.log('[LOGIN DEBUG] 4. Salão encontrado pelo find():', foundSalon ? { id: foundSalon.id, name: foundSalon.name, cnpj: foundSalon.cnpj, isActive: foundSalon.isActive, hasPassword: !!foundSalon.password } : 'NÃO ENCONTRADO');
       
       if (!foundSalon) {
         registerLoginFailure();
         setLoginError('Salão com o CNPJ informado não foi encontrado.');
+        console.log('[LOGIN DEBUG] 10. MOTIVO DA FALHA: Salão não encontrado para CNPJ normalizado:', cleanCNPJ);
         return;
       }
 
       if (foundSalon.isActive === false) {
         setLoginError('Este salão está inativo. Entre em contato com o administrador do SaaS.');
+        console.log('[LOGIN DEBUG] 10. MOTIVO DA FALHA: Salão inativo (isActive === false)');
         return;
       }
 
@@ -1146,28 +1159,42 @@ export default function App() {
       const allProfs = loadProfessionals();
       const salonProfs = allProfs.filter(p => p.salonId === foundSalon.id);
       const cleanAdminPhone = loginAdminPhone.replace(/\D/g, '');
+      console.log('[LOGIN DEBUG] 6. Telefone digitado (mascarado):', loginAdminPhone ? loginAdminPhone.replace(/\d/g, 'X') : 'VAZIO');
+      console.log('[LOGIN DEBUG] 7. Telefone normalizado:', cleanAdminPhone);
+      console.log('[LOGIN DEBUG] 5. Lista de TODOS os administradores carregados para este salão:', salonProfs.filter(p => p.role === 'administrador').map(a => ({ id: a.id, salonId: a.salonId, phone: a.phone, role: a.role, isActive: a.isActive })));
+      
       const activeAdmins = salonProfs.filter(p => p.role === 'administrador' && p.isActive !== false);
+      console.log('[LOGIN DEBUG] Admins ativos no salão (count):', activeAdmins.length);
 
       let loggedAdmin: Professional | null = null;
       const existingProfWithPhone = salonProfs.find(p => p.phone.replace(/\D/g, '') === cleanAdminPhone);
+      console.log('[LOGIN DEBUG] 8. Administrador encontrado por telefone:', existingProfWithPhone ? { id: existingProfWithPhone.id, name: existingProfWithPhone.name, phone: existingProfWithPhone.phone, role: existingProfWithPhone.role, isActive: existingProfWithPhone.isActive, hasPassword: !!existingProfWithPhone.password } : 'NÃO ENCONTRADO');
 
       if (existingProfWithPhone) {
         if (existingProfWithPhone.role !== 'administrador') {
           setLoginError('Este colaborador está cadastrado como profissional. Por favor, use a aba "Profissional Colaborador" para acessar.');
+          console.log('[LOGIN DEBUG] 10. MOTIVO DA FALHA: Telefone pertence a profissional (role !== administrador)');
           return;
         }
         if (existingProfWithPhone.isActive === false) {
           setLoginError('Este administrador está inativo.');
+          console.log('[LOGIN DEBUG] 10. MOTIVO DA FALHA: Administrador inativo (isActive === false)');
           return;
         }
-        if (existingProfWithPhone.password !== loginPassword) {
+        const passwordMatch = existingProfWithPhone.password === loginPassword;
+        console.log('[LOGIN DEBUG] 9. Comparação de senha do admin:', passwordMatch ? 'COINCIDIU' : 'NÃO COINCIDIU');
+        if (!passwordMatch) {
           registerLoginFailure();
           setLoginError('Senha incorreta para este administrador.');
+          console.log('[LOGIN DEBUG] 10. MOTIVO DA FALHA: Senha do administrador não confere');
           return;
         }
         loggedAdmin = existingProfWithPhone;
+        console.log('[LOGIN DEBUG] Admin autenticado via profissional cadastrado', { adminId: loggedAdmin.id, adminName: loggedAdmin.name });
       } else {
-        if (foundSalon.password === loginPassword) {
+        const salonPasswordMatch = foundSalon.password === loginPassword;
+        console.log('[LOGIN DEBUG] 9. Comparação de senha do salão (fallback):', salonPasswordMatch ? 'COINCIDIU' : 'NÃO COINCIDIU');
+        if (salonPasswordMatch) {
           const defaultAdmin: Professional = {
             id: 'admin_sys_' + Math.random().toString(36).substr(2, 9),
             salonId: foundSalon.id,
@@ -1182,9 +1209,11 @@ export default function App() {
           const updated = [...allProfs, defaultAdmin];
           saveProfessionals(updated);
           loggedAdmin = defaultAdmin;
+          console.log('[LOGIN DEBUG] Admin autenticado via senha do salão (fallback), admin criado', { adminId: loggedAdmin.id });
         } else {
           registerLoginFailure();
           setLoginError('Administrador não localizado ou senha primária do salão incorreta.');
+          console.log('[LOGIN DEBUG] 10. MOTIVO DA FALHA: Admin não encontrado por telefone E senha do salão incorreta', { salonHasPassword: !!foundSalon.password });
           return;
         }
       }
@@ -1199,6 +1228,7 @@ export default function App() {
         localStorage.setItem('auth_currentSalonId', foundSalon.id);
         localStorage.setItem('auth_currentProfessionalId', loggedAdmin.id);
         localStorage.setItem('auth_lastRoute', 'dashboard');
+        console.log('[LOGIN DEBUG] 11. Gravando no localStorage:', { auth_userRole: 'ADMIN', auth_currentSalonId: foundSalon.id, auth_currentProfessionalId: loggedAdmin.id, auth_lastRoute: 'dashboard' });
 
         // Load specific tenant sandbox arrays
         setProfessionals(loadProfessionals(foundSalon.id));
@@ -1214,10 +1244,12 @@ export default function App() {
         
         setActiveTab('dashboard');
         registerLoginSuccess();
+        console.log('[LOGIN DEBUG] 12. REDIRECIONAMENTO: Login ADMIN concluído com sucesso, redirecionando para dashboard');
         return;
       } else {
         registerLoginFailure();
         setLoginError('Administrador colaborador não cadastrado, inativo ou senha inválida.');
+        console.log('[LOGIN DEBUG] 10. MOTIVO DA FALHA: loggedAdmin é null (inesperado)');
         return;
       }
     }
@@ -1225,17 +1257,23 @@ export default function App() {
     // 2. Try Professional Login with Telephone/Phone and Password
     if (loginType === 'PROFESSIONAL') {
       const cleanPhone = loginPhone.replace(/\D/g, '');
+      console.log('[LOGIN DEBUG] ========== LOGIN PROFISSIONAL ==========');
+      console.log('[LOGIN DEBUG] 1. Telefone digitado (mascarado):', loginPhone ? loginPhone.replace(/\d/g, 'X') : 'VAZIO');
+      console.log('[LOGIN DEBUG] 2. Telefone normalizado:', cleanPhone);
+      console.log('[LOGIN DEBUG] 3. Lista de TODOS os profissionais carregados:', loadProfessionals().map(p => ({ id: p.id, salonId: p.salonId, name: p.name, phone: p.phone, role: p.role, isActive: p.isActive, hasPassword: !!p.password })));
+      
       const foundProf = loadProfessionals().find(p => {
         const pClean = p.phone.replace(/\D/g, '');
         const matchPhone = pClean === cleanPhone;
         const matchPassword = p.password === loginPassword;
-        // Accessible only for regular professionals, or we allow any non-administrator
         return matchPhone && matchPassword && p.role !== 'administrador' && p.isActive !== false;
       });
+      console.log('[LOGIN DEBUG] 4. Profissional encontrado:', foundProf ? { id: foundProf.id, name: foundProf.name, phone: foundProf.phone, role: foundProf.role, isActive: foundProf.isActive, salonId: foundProf.salonId } : 'NÃO ENCONTRADO');
       
       if (foundProf) {
         // Find associated salon
         const matchSalon = salons.find(s => s.id === foundProf.salonId);
+        console.log('[LOGIN DEBUG] 5. Salão do profissional:', matchSalon ? { id: matchSalon.id, name: matchSalon.name, cnpj: matchSalon.cnpj, isActive: matchSalon.isActive } : 'NÃO ENCONTRADO');
         if (matchSalon) {
           setCurrentSalon(matchSalon);
         }
@@ -1247,20 +1285,24 @@ export default function App() {
         if (matchSalon) localStorage.setItem('auth_currentSalonId', matchSalon.id);
         localStorage.setItem('auth_currentProfessionalId', foundProf.id);
         localStorage.setItem('auth_lastRoute', 'dashboard');
+        console.log('[LOGIN DEBUG] 6. Gravando no localStorage:', { auth_userRole: 'PROFESSIONAL', auth_currentSalonId: matchSalon?.id, auth_currentProfessionalId: foundProf.id, auth_lastRoute: 'dashboard' });
         
         // Load comanda history for professional stats comparison
         setComandas(loadComandas(matchSalon?.id));
         registerLoginSuccess();
+        console.log('[LOGIN DEBUG] 7. REDIRECIONAMENTO: Login PROFESSIONAL concluído com sucesso, redirecionando para dashboard');
         return;
       } else {
         registerLoginFailure();
         setLoginError('Colaborador Profissional não encontrado, inativo ou senha inválida.');
+        console.log('[LOGIN DEBUG] MOTIVO DA FALHA: Profissional não encontrado (telefone/senha/role/isActive)');
         return;
       }
     }
 
     registerLoginFailure();
     setLoginError('Credenciais inválidas ou senha incorreta para este salão.');
+    console.log('[LOGIN DEBUG] Falha final: tipo de login não reconhecido ou credenciais inválidas', { loginType });
   };
 
   // Admin Direct quick demo shortcut filler

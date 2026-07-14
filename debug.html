@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Debug</title></head>
+<body>
+<script>
+// Load the app bundle and catch errors
+window.onerror = function(msg, url, line, col, error) {
+  console.error('Caught error:', msg, error);
+  document.body.innerHTML = '<pre>' + JSON.stringify({msg, url, line, col, stack: error?.stack}) + '</pre>';
+  return true;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('Unhandled rejection:', e.reason);
+  document.body.innerHTML += '<pre>Promise: ' + JSON.stringify({msg: e.reason?.message, stack: e.reason?.stack}) + '</pre>';
+});
+</script>
+<script type="module" src="/assets/index-DqlPJv97.js"></script>
+</body>
+</html>
