@@ -670,7 +670,7 @@ app.post("/api/update-tenant-billing", express.json(), async (req, res) => {
 
   try {
     const supabase = getSupabase();
-    const { tenantId, expirationDate, planValue, isActive, cardFeePercentProfDeduct } = req.body;
+    const { tenantId, expirationDate, planValue, isActive, cardFeePercentProfDeduct, cnpj } = req.body;
 
     if (!tenantId) {
       return res.status(400).json({ success: false, error: "tenantId é obrigatório" });
@@ -681,6 +681,7 @@ app.post("/api/update-tenant-billing", express.json(), async (req, res) => {
     if (planValue !== undefined) updateFields.plan_value = planValue;
     if (isActive !== undefined) updateFields.is_active = isActive;
     if (cardFeePercentProfDeduct != null) updateFields.card_fee_percent_prof_deduct = cardFeePercentProfDeduct;
+    if (cnpj !== undefined) updateFields.cnpj = cnpj;
 
     if (Object.keys(updateFields).length === 0) {
       return res.status(400).json({ success: false, error: "Nenhum campo para atualizar" });
