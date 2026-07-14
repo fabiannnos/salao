@@ -4,7 +4,7 @@ export const initialSalons: Salon[] = [
   {
     id: "salon_eclat",
     name: "Modello Salon",
-    cnpj: "12.345.678/0001-90",
+    cnpj: "19.426.534/0001-02",
     phone: "(11) 99999-9999",
     email: "financeiro@modellosalon.com.br",
     password: "1234",

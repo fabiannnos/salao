@@ -1326,7 +1326,7 @@ export default function App() {
   // Admin Direct quick demo shortcut filler
   const handleQuickFill = (type: 'éclat_admin' | 'paula_prof') => {
     if (type === 'éclat_admin') {
-      setLoginCNPJ('12.345.678/0001-90');
+      setLoginCNPJ('19.426.534/0001-02');
       setLoginAdminPhone('(11) 98888-7777');
       setLoginPhone('');
       setLoginPassword('1234');
