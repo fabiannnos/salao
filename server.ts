@@ -558,10 +558,10 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
             if (tenantIds.length > 0) {
               const { data: dbTenants, error: dbFetchErr } = await supabase
                 .from("tenants")
-                .select("id, expiration_date, is_active, stripe_customer_id, stripe_subscription_id, last_payment_date, billing_status, max_professionals, max_admins, card_fee_percent_prof_deduct, plan_value")
+                .select("id, cnpj, expiration_date, is_active, stripe_customer_id, stripe_subscription_id, last_payment_date, billing_status, max_professionals, max_admins, card_fee_percent_prof_deduct, plan_value")
                 .in("id", tenantIds);
               
-              if (!dbFetchErr && dbTenants && dbTenants.length > 0) {
+if (!dbFetchErr && dbTenants && dbTenants.length > 0) {
                 const dbTenantsMap = new Map(dbTenants.map((dbT: any) => [dbT.id, dbT]));
                 sanitized = sanitized.map((t: any) => {
                   const dbT: any = dbTenantsMap.get(t.id);
@@ -570,8 +570,10 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
                       // O auto-sync NUNCA sobrescreve expiration_date, is_active, plan_value, card_fee_percent_prof_deduct,
                       // max_professionals, max_admins com dados do cliente. Apenas o endpoint
                       // /api/update-tenant-billing (chamado pelo modal SAAS_ADMIN) altera esses campos.
+                      // CNPJ também é protegido - nunca sobrescreve do cliente para o servidor.
                       return {
                         ...t,
+                        cnpj: dbT.cnpj || t.cnpj,
                         expiration_date: dbT.expiration_date || t.expiration_date,
                         is_active: dbT.is_active !== undefined ? dbT.is_active : t.is_active,
                         max_professionals: dbT.max_professionals !== null && dbT.max_professionals !== undefined ? dbT.max_professionals : t.max_professionals,
@@ -583,7 +585,7 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
                         last_payment_date: dbT.last_payment_date || t.last_payment_date,
                         billing_status: dbT.billing_status || t.billing_status
                       };
-                  }
+                    }
                   return t;
                 });
               }

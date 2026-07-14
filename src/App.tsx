@@ -164,15 +164,28 @@ export default function App() {
           
           // Merge PIX fields from localStorage into server data (server may strip unknown fields)
           const localSalonsBefore = loadSalons();
-          const mergedTenants = (data.tenants || []).map((serverSalon: any) => {
-            const localSalon = localSalonsBefore.find((s: any) => s.id === serverSalon.id);
-            if (localSalon) {
-              return {
-                ...serverSalon,
-              };
-            }
-            return serverSalon;
-          });
+          
+          // Preserve local-only tenants (created offline/pending sync)
+          const localOnlyTenants = localSalonsBefore.filter(
+            (local: any) => !data.tenants?.some((server: any) => server.id === local.id)
+          );
+          
+          const mergedTenants = [
+            ...localOnlyTenants,
+            ...(data.tenants || []).map((serverSalon: any) => {
+              const localSalon = localSalonsBefore.find((s: any) => s.id === serverSalon.id);
+              if (localSalon) {
+                return {
+                  ...serverSalon,
+                  // preservar campos exclusivos locais
+                  pixKeyType: localSalon.pixKeyType,
+                  pixKey: localSalon.pixKey,
+                  pixMerchantName: localSalon.pixMerchantName
+                };
+              }
+              return serverSalon;
+            })
+          ];
           saveSalons(mergedTenants);
           saveProfessionals(data.professionals || []);
           saveServices(data.services || []);
