@@ -37,7 +37,7 @@ interface ComandasKanbanProps {
   cardAcquirers?: CardAcquirer[];
   onAddComanda: (comanda: Comanda) => void;
   onUpdateComandaObj: (comanda: Comanda) => void;
-  onUpdateStatus: (id: string, status: ComandaStatus, payment?: string, isFiado?: boolean, cardDetails?: any, pixPayload?: string) => void;
+  onUpdateStatus: (id: string, status: ComandaStatus, payment?: string, isFiado?: boolean, cardDetails?: any, pixPayload?: string, overrides?: { competenceDate?: string; paymentDate?: string }) => Promise<void>;
   onDeleteComanda: (id: string) => void;
   currentSalon?: Salon | null;
   isReadOnly?: boolean;
@@ -77,6 +77,7 @@ export default function ComandasKanban({
   const [editDateCreated, setEditDateCreated] = useState<string>('');
   const [editCompetenceDate, setEditCompetenceDate] = useState<string>('');
   const [editPaymentDate, setEditPaymentDate] = useState<string>('');
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
 
   // New/Edit Comanda build state
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -780,7 +781,7 @@ export default function ComandasKanban({
   };
 
   // Submit payment selection on card and finalize
-  const handleSubmitCardPayment = (comandaId: string, skipWA = false, forceConfirm = false) => {
+  const handleSubmitCardPayment = async (comandaId: string, skipWA = false, forceConfirm = false) => {
     const isFiadoType = cardPaymentMethod === 'Duplicata';
     const methodStr = isFiadoType ? 'Caderno' : cardPaymentMethod;
 
@@ -812,14 +813,21 @@ export default function ComandasKanban({
     // final. O dataStore apenas persiste o artefato — não conhece a
     // config PIX. Garante que o QR persistido bate com o exibido.
     const pixPayloadForStore = methodStr === 'Pix' ? pixBRCode : undefined;
-    onUpdateStatus(comandaId, 'Concluido', methodStr, isFiadoType, cardDetails, pixPayloadForStore);
-    // Persist user-defined competenceDate and paymentDate (updateComandaStatus sets paymentDate to today)
     const todayStr = new Date().toISOString().split('T')[0];
-    onUpdateComandaObj({
-      ...comanda,
+    const dateOverrides = {
       competenceDate: editCompetenceDate || comanda.competenceDate || todayStr,
       paymentDate: editPaymentDate || todayStr
-    });
+    };
+
+    // SINGLE SOURCE OF TRUTH: await persiste status, datas, comissões,
+    // financeiro e fidelidade TUDO em uma única chamada. Não existe
+    // segundo update — nenhuma outra gravação pode sobrescrever.
+    setIsSubmittingPayment(true);
+    try {
+      await onUpdateStatus(comandaId, 'Concluido', methodStr, isFiadoType, cardDetails, pixPayloadForStore, dateOverrides);
+    } finally {
+      setIsSubmittingPayment(false);
+    }
     setActiveCheckoutComandaId(null);
     triggerToast(`Comanda faturada com sucesso via ${cardPaymentMethod}!`);
 
@@ -1537,18 +1545,20 @@ export default function ComandasKanban({
                                     <button
                                       type="button"
                                       onClick={() => handleSubmitCardPayment(c.id, true)}
-                                      className="flex-1 bg-amber-600 text-white text-[10px] py-1.5 px-1 rounded font-bold hover:bg-[#a0854c] transition cursor-pointer"
-                                      title="Faturar sem abrir WhatsApp"
+                                      disabled={isSubmittingPayment}
+                                      className={`flex-1 text-white text-[10px] py-1.5 px-1 rounded font-bold transition ${isSubmittingPayment ? 'bg-stone-400 cursor-not-allowed' : 'bg-amber-600 hover:bg-[#a0854c] cursor-pointer'}`}
+                                      title={isSubmittingPayment ? 'Faturando...' : 'Faturar sem abrir WhatsApp'}
                                     >
-                                      Apenas Faturar
+                                      {isSubmittingPayment ? 'Faturando...' : 'Apenas Faturar'}
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => handleSubmitCardPayment(c.id, false)}
-                                      className="flex-1 bg-green-700 text-white text-[10px] py-1.5 px-1 rounded font-bold hover:bg-green-800 transition cursor-pointer flex items-center justify-center gap-0.5"
-                                      title="Faturar e enviar comprovante via WhatsApp"
+                                      disabled={isSubmittingPayment}
+                                      className={`flex-1 text-white text-[10px] py-1.5 px-1 rounded font-bold transition flex items-center justify-center gap-0.5 ${isSubmittingPayment ? 'bg-stone-400 cursor-not-allowed' : 'bg-green-700 hover:bg-green-800 cursor-pointer'}`}
+                                      title={isSubmittingPayment ? 'Faturando...' : 'Faturar e enviar comprovante via WhatsApp'}
                                     >
-                                      Lançar e WA 🚀
+                                      {isSubmittingPayment ? 'Faturando...' : 'Lançar e WA 🚀'}
                                     </button>
                                   </div>
                                   <button
@@ -1705,13 +1715,14 @@ export default function ComandasKanban({
               <div className="flex gap-2.5 pt-1">
                 <button
                   type="button"
+                  disabled={isSubmittingPayment}
                   onClick={() => {
                     handleSubmitCardPayment(comandaId, skipWA, true);
                     setShowCardConfirmModal(null);
                   }}
-                  className="flex-1 bg-green-700 hover:bg-green-800 text-white font-black tracking-widest py-2.5 px-3 rounded-lg text-[9.5px] uppercase cursor-pointer transition shadow-xs"
+                  className={`flex-1 text-white font-black tracking-widest py-2.5 px-3 rounded-lg text-[9.5px] uppercase transition shadow-xs ${isSubmittingPayment ? 'bg-stone-400 cursor-not-allowed' : 'bg-green-700 hover:bg-green-800 cursor-pointer'}`}
                 >
-                  Confirmar e Registrar
+                  {isSubmittingPayment ? 'Faturando...' : 'Confirmar e Registrar'}
                 </button>
                 <button
                   type="button"

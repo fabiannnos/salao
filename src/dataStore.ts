@@ -317,49 +317,57 @@ export function addComandaAndUpdateFinance(comanda: Comanda): { comanda: Comanda
   if (comanda.status === 'Concluido') {
     const financials = JSON.parse(localStorage.getItem(KEY_FINANCIALS) || '[]') as FinancialRecord[];
 
-    // 1. Revenue Record (Service sales)
-    const revRecord: FinancialRecord = {
-      id: 'fin_trig_rev_' + Math.random().toString(36).substr(2, 9),
-      salonId: comanda.salonId,
-      type: 'receita',
-      category: comanda.isFiado ? 'Contas a Receber' : 'Serviço',
-      amount: comanda.totalValue,
-      date: comanda.paymentDate || new Date().toISOString().split('T')[0],
-      competenceDate: comanda.competenceDate,
-      description: `Comunicação Automática: Comanda ${comanda.ticketNumber} para o cliente ${comanda.clientName}`,
-      status: comanda.isFiado ? 'pendente' : 'pago',
-      relatedComandaId: comanda.id,
-      dueDate: comanda.isFiado ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : undefined
-    };
-    financials.push(revRecord);
-    triggeredFinance.push(revRecord);
-
-    // If card payment with registered transaction fee expense
-    if ((comanda.paymentMethod === 'Cartão Credito' || comanda.paymentMethod === 'Cartão Debito') && comanda.cardFeeAmount && comanda.cardFeeAmount > 0) {
-      const feeRecord: FinancialRecord = {
-        id: 'fin_trig_fee_' + Math.random().toString(36).substr(2, 9),
+    // 1. Revenue Record (Service sales) — apenas se ainda não existe
+    const alreadyHasRevenue = financials.some(f => f.relatedComandaId === comanda.id && f.type === 'receita');
+    if (!alreadyHasRevenue) {
+      const revRecord: FinancialRecord = {
+        id: 'fin_trig_rev_' + Math.random().toString(36).substr(2, 9),
         salonId: comanda.salonId,
-        type: 'despesa',
-        category: 'Taxas de Cartão',
-        amount: comanda.cardFeeAmount,
+        type: 'receita',
+        category: comanda.isFiado ? 'Contas a Receber' : 'Serviço',
+        amount: comanda.totalValue,
         date: comanda.paymentDate || new Date().toISOString().split('T')[0],
         competenceDate: comanda.competenceDate,
-        description: `Taxa de Cartão (${comanda.cardAcquirerName || 'Indefinida'} - ${comanda.cardBrand || 'Indefinida'} ${comanda.cardInstallments ? `${comanda.cardInstallments}x` : 'Débito'}) sobre Comanda ${comanda.ticketNumber}`,
-        status: 'pago',
-        relatedComandaId: comanda.id
+        description: `Comunicação Automática: Comanda ${comanda.ticketNumber} para o cliente ${comanda.clientName}`,
+        status: comanda.isFiado ? 'pendente' : 'pago',
+        relatedComandaId: comanda.id,
+        dueDate: comanda.isFiado ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : undefined
       };
-      financials.push(feeRecord);
-      triggeredFinance.push(feeRecord);
+      financials.push(revRecord);
+      triggeredFinance.push(revRecord);
+    }
+
+    // If card payment with registered transaction fee expense — apenas se ainda não existe
+    if ((comanda.paymentMethod === 'Cartão Credito' || comanda.paymentMethod === 'Cartão Debito') && comanda.cardFeeAmount && comanda.cardFeeAmount > 0) {
+      const alreadyHasFee = financials.some(f => f.relatedComandaId === comanda.id && f.type === 'despesa' && f.category === 'Taxas de Cartão');
+      if (!alreadyHasFee) {
+        const feeRecord: FinancialRecord = {
+          id: 'fin_trig_fee_' + Math.random().toString(36).substr(2, 9),
+          salonId: comanda.salonId,
+          type: 'despesa',
+          category: 'Taxas de Cartão',
+          amount: comanda.cardFeeAmount,
+          date: comanda.paymentDate || new Date().toISOString().split('T')[0],
+          competenceDate: comanda.competenceDate,
+          description: `Taxa de Cartão (${comanda.cardAcquirerName || 'Indefinida'} - ${comanda.cardBrand || 'Indefinida'} ${comanda.cardInstallments ? `${comanda.cardInstallments}x` : 'Débito'}) sobre Comanda ${comanda.ticketNumber}`,
+          status: 'pago',
+          relatedComandaId: comanda.id
+        };
+        financials.push(feeRecord);
+        triggeredFinance.push(feeRecord);
+      }
     }
 
     localStorage.setItem(KEY_FINANCIALS, JSON.stringify(financials));
 
-    // Update client fidelity points (+10 pts per 100 paid)
-    const clients = JSON.parse(localStorage.getItem(KEY_CLIENTS) || '[]') as Client[];
-    const clientIndex = clients.findIndex(c => c.id === comanda.clientId || c.name === comanda.clientName);
-    if (clientIndex !== -1) {
-      clients[clientIndex].fidelityPoints += Math.floor(comanda.totalValue / 10);
-      localStorage.setItem(KEY_CLIENTS, JSON.stringify(clients));
+    // Update client fidelity points (+10 pts per 100 paid) — apenas se revenue foi criado agora
+    if (!alreadyHasRevenue) {
+      const clients = JSON.parse(localStorage.getItem(KEY_CLIENTS) || '[]') as Client[];
+      const clientIndex = clients.findIndex(c => c.id === comanda.clientId || c.name === comanda.clientName);
+      if (clientIndex !== -1) {
+        clients[clientIndex].fidelityPoints += Math.floor(comanda.totalValue / 10);
+        localStorage.setItem(KEY_CLIENTS, JSON.stringify(clients));
+      }
     }
   }
 
@@ -385,7 +393,10 @@ export function updateComandaStatus(
   // Payload Pix (BR Code EMV) já gerado pelo caller, fetched fresh do
   // endpoint /api/tenant-pix-config no momento da geração. Este dataStore
   // não conhece configuração de PIX — apenas persiste o artefato final.
-  pixPayload?: string
+  pixPayload?: string,
+  // Datas opcionais que o caller pode fornecer. Quando não informadas,
+  // paymentDate recebe hoje e competenceDate permanece inalterado.
+  overrides?: { competenceDate?: string; paymentDate?: string }
 ): Comanda | null {
   const comandas = JSON.parse(localStorage.getItem(KEY_COMANDAS) || '[]') as Comanda[];
   const index = comandas.findIndex(c => c.id === comandaId);
@@ -397,7 +408,10 @@ export function updateComandaStatus(
   comandas[index].status = newStatus;
   
   if (newStatus === 'Concluido') {
-    comandas[index].paymentDate = new Date().toISOString().split('T')[0];
+    comandas[index].paymentDate = overrides?.paymentDate || new Date().toISOString().split('T')[0];
+    if (overrides?.competenceDate) {
+      comandas[index].competenceDate = overrides.competenceDate;
+    }
     
     const finalPaymentMethod = paymentMethod || comandas[index].paymentMethod || 'Pix';
     comandas[index].paymentMethod = finalPaymentMethod;
@@ -478,47 +492,55 @@ export function updateComandaStatus(
     // Save comanda back before updating financials
     localStorage.setItem(KEY_COMANDAS, JSON.stringify(comandas));
 
-    // 1. Revenue Record (Service sales)
-    const revRecord: FinancialRecord = {
-      id: 'fin_trig_rev_' + Math.random().toString(36).substr(2, 9),
-      salonId: comanda.salonId,
-      type: 'receita',
-      category: isFiado ? 'Contas a Receber' : 'Serviço',
-      amount: comanda.totalValue,
-      date: comanda.paymentDate,
-      competenceDate: comanda.competenceDate,
-      description: `Comunicação Automática: Comanda ${comanda.ticketNumber} concluída via Kanban para o cliente ${comanda.clientName}`,
-      status: isFiado ? 'pendente' : 'pago',
-      relatedComandaId: comanda.id,
-      dueDate: isFiado ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : undefined
-    };
-    financials.push(revRecord);
-
-    // If card payment with registered transaction fee expense
-    if ((finalPaymentMethod === 'Cartão Credito' || finalPaymentMethod === 'Cartão Debito') && comanda.cardFeeAmount && comanda.cardFeeAmount > 0) {
-      const feeRecord: FinancialRecord = {
-        id: 'fin_trig_fee_' + Math.random().toString(36).substr(2, 9),
+    // 1. Revenue Record (Service sales) — apenas se ainda não existe
+    const alreadyHasRevenue = financials.some(f => f.relatedComandaId === comandaId && f.type === 'receita');
+    if (!alreadyHasRevenue) {
+      const revRecord: FinancialRecord = {
+        id: 'fin_trig_rev_' + Math.random().toString(36).substr(2, 9),
         salonId: comanda.salonId,
-        type: 'despesa',
-        category: 'Taxas de Cartão',
-        amount: comanda.cardFeeAmount,
+        type: 'receita',
+        category: isFiado ? 'Contas a Receber' : 'Serviço',
+        amount: comanda.totalValue,
         date: comanda.paymentDate,
         competenceDate: comanda.competenceDate,
-        description: `Taxa de Cartão (${comanda.cardAcquirerName || 'Indefinida'} - ${comanda.cardBrand || 'Indefinida'} ${comanda.cardInstallments ? `${comanda.cardInstallments}x` : 'Débito'}) sobre Comanda ${comanda.ticketNumber}`,
-        status: 'pago',
-        relatedComandaId: comanda.id
+        description: `Comunicação Automática: Comanda ${comanda.ticketNumber} concluída via Kanban para o cliente ${comanda.clientName}`,
+        status: isFiado ? 'pendente' : 'pago',
+        relatedComandaId: comanda.id,
+        dueDate: isFiado ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : undefined
       };
-      financials.push(feeRecord);
+      financials.push(revRecord);
+    }
+
+    // If card payment with registered transaction fee expense — apenas se ainda não existe
+    if ((finalPaymentMethod === 'Cartão Credito' || finalPaymentMethod === 'Cartão Debito') && comanda.cardFeeAmount && comanda.cardFeeAmount > 0) {
+      const alreadyHasFee = financials.some(f => f.relatedComandaId === comandaId && f.type === 'despesa' && f.category === 'Taxas de Cartão');
+      if (!alreadyHasFee) {
+        const feeRecord: FinancialRecord = {
+          id: 'fin_trig_fee_' + Math.random().toString(36).substr(2, 9),
+          salonId: comanda.salonId,
+          type: 'despesa',
+          category: 'Taxas de Cartão',
+          amount: comanda.cardFeeAmount,
+          date: comanda.paymentDate,
+          competenceDate: comanda.competenceDate,
+          description: `Taxa de Cartão (${comanda.cardAcquirerName || 'Indefinida'} - ${comanda.cardBrand || 'Indefinida'} ${comanda.cardInstallments ? `${comanda.cardInstallments}x` : 'Débito'}) sobre Comanda ${comanda.ticketNumber}`,
+          status: 'pago',
+          relatedComandaId: comanda.id
+        };
+        financials.push(feeRecord);
+      }
     }
 
     localStorage.setItem(KEY_FINANCIALS, JSON.stringify(financials));
 
-    // Update client fidelity points (+10 pts per 100 paid)
-    const clients = JSON.parse(localStorage.getItem(KEY_CLIENTS) || '[]') as Client[];
-    const clientIdx = clients.findIndex(c => c.id === comanda.clientId || c.name === comanda.clientName);
-    if (clientIdx !== -1) {
-      clients[clientIdx].fidelityPoints += Math.floor(comanda.totalValue / 10);
-      localStorage.setItem(KEY_CLIENTS, JSON.stringify(clients));
+    // Update client fidelity points (+10 pts per 100 paid) — apenas se revenue foi criado agora
+    if (!alreadyHasRevenue) {
+      const clients = JSON.parse(localStorage.getItem(KEY_CLIENTS) || '[]') as Client[];
+      const clientIdx = clients.findIndex(c => c.id === comanda.clientId || c.name === comanda.clientName);
+      if (clientIdx !== -1) {
+        clients[clientIdx].fidelityPoints += Math.floor(comanda.totalValue / 10);
+        localStorage.setItem(KEY_CLIENTS, JSON.stringify(clients));
+      }
     }
 
     return comanda;

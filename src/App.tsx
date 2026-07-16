@@ -4,7 +4,7 @@ import {
   FinancialRecord, Appointment, ChartAccountGroup, ComandaStatus, ServiceCategory,
   CardAcquirer
 } from './types';
-import { 
+import {
   loadSalons, saveSalons,
   loadProfessionals, saveProfessionals,
   loadServices, saveServices,
@@ -19,6 +19,7 @@ import {
   loadCardAcquirers, saveCardAcquirers, clearSalonMovements, recalculateAllCommissions, deleteSalonDataFull,
   runProfessionalsMigration2026, getLastProfessionalsMigrationReport
 } from './dataStore';
+import { APP_VERSION, APP_BUILD_DATE } from './version';
 
 import ModalPagamentoPix from './components/ModalPagamentoPix';
 import ModalConfirmCascadeDelete from './components/ModalConfirmCascadeDelete';
@@ -485,6 +486,7 @@ export default function App() {
         professionals: loadProfessionals(),
         services: loadServices(),
         products: loadProducts(),
+        comandas: loadComandas(),
         financials: loadFinancials()
       };
 
@@ -740,9 +742,9 @@ export default function App() {
     }
   };
 
-  const handleUpdateComandaStatus = async (id: string, newStatus: ComandaStatus, payment?: any, isFiado?: boolean, cardDetails?: any, pixPayload?: string) => {
+  const handleUpdateComandaStatus = async (id: string, newStatus: ComandaStatus, payment?: any, isFiado?: boolean, cardDetails?: any, pixPayload?: string, overrides?: { competenceDate?: string; paymentDate?: string }) => {
     if (isMutationBlocked("Dar Baixa de Pagamento na Comanda")) return;
-    const updated = updateComandaStatus(id, newStatus, payment, isFiado, cardDetails, pixPayload);
+    const updated = updateComandaStatus(id, newStatus, payment, isFiado, cardDetails, pixPayload, overrides);
     if (updated) {
       try {
         const res = await fetch(`/api/comandas/${id}`, {
@@ -1376,7 +1378,7 @@ export default function App() {
   };
 
   // App version for support reference
-  const APP_VERSION = 'v1.1.3 (08/07/2026)';
+  const APP_VERSION_DISPLAY = `${APP_VERSION} (${APP_BUILD_DATE})`;
 
   const handleClearCacheAndReload = async () => {
     if (!clearCacheConfirm) {
@@ -1740,7 +1742,7 @@ export default function App() {
             </a>
 
             <p className="text-[9px] text-stone-400 text-center font-mono">
-              Versão: {APP_VERSION}
+              Versão: {APP_VERSION_DISPLAY}
             </p>
           </div>
         </div>

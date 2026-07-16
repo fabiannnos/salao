@@ -539,7 +539,7 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
       { key: "professionals", table: "professionals", mapper: mapProfessional },
       { key: "services", table: "services", mapper: mapService },
       { key: "products", table: "products", mapper: mapProduct },
-      // Comandas usam REST API própria — removidas do supa-sync para evitar recriação
+      { key: "comandas", table: "comandas", mapper: comandaToDb },
       { key: "financials", table: "financials", mapper: mapFinancial },
       // Clients usam REST API própria — removidas do supa-sync para evitar recriação
       // Appointments usam REST API própria — removidas do supa-sync para evitar recriação
