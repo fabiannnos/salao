@@ -1,137 +1,42 @@
-import React, { useState } from 'react';
-import { Comanda, Professional, Salon } from '../types';
-import { formatCurrency, getMonthName, getComissaoReferenceDate, formatDateBR } from '../utils';
-import { Award, Scissors, Percent, FileText, Calendar, Filter, Users, Download, Search } from 'lucide-react';
-import GestaoModelloLogo from './GestaoModelloLogo';
+import React from 'react';
+import { Comanda, Professional, Salon } from '../../types';
+import { formatCurrency, formatDateBR } from '../../utils';
+import { Award, Scissors, Calculator, Search } from 'lucide-react';
+import GestaoModelloLogo from '../GestaoModelloLogo';
+import { useCommissionData } from './useCommissionData';
+import CommissionDetailsModal from './CommissionDetailsModal';
 
-interface ProfessionalDashboardProps {
+interface ProfessionalDashboardDesktopProps {
   professional: Professional;
   comandas: Comanda[];
   salon?: Salon | null;
   onLogout: () => void;
 }
 
-export default function ProfessionalDashboard({
+export default function ProfessionalDashboardDesktop({
   professional,
   comandas,
   salon,
   onLogout
-}: ProfessionalDashboardProps) {
-  // Filters & sort values
-  const [selectedMonth, setSelectedMonth] = useState((new Date()).getMonth());
-  const [selectedYear, setSelectedYear] = useState(2026);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
-
-  const commissionAccrualRule = salon?.commissionAccrualRule ?? 'caixa';
-
-  const professionalServices = comandas
-    .filter(c => c.status === 'Concluido')
-    .flatMap(c =>
-      c.services
-        .filter(s => s.professionalId === professional.id)
-        .map(s => {
-          const refDate = getComissaoReferenceDate(c, commissionAccrualRule);
-          if (!refDate) return null;
-          const parts = refDate.split('-');
-          const refDateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-          return {
-            comandaId: c.id,
-            ticketNumber: c.ticketNumber,
-            clientName: c.clientName,
-            serviceName: s.name,
-            totalPrice: s.price,
-            commissionRate: s.commissionRate,
-            commissionValue: s.commissionValue,
-            refDate: refDate,
-            refDateObj: refDateObj,
-            commissionPaid: s.commissionPaid || false
-          };
-        })
-    )
-    .filter((item): item is NonNullable<typeof item> => item !== null)
-    .filter(item => {
-      return item.refDateObj.getMonth() === selectedMonth &&
-             item.refDateObj.getFullYear() === selectedYear;
-    })
-    .filter(item => {
-      if (!searchQuery) return true;
-      const q = searchQuery.toLowerCase();
-      return item.clientName.toLowerCase().includes(q) ||
-             item.ticketNumber.toLowerCase().includes(q) ||
-             item.serviceName.toLowerCase().includes(q);
-    });
-
-  const handleSort = (column: string) => {
-    if (sortColumn === column) {
-      if (sortDirection === 'asc') setSortDirection('desc');
-      else if (sortDirection === 'desc') { setSortColumn(null); setSortDirection(null); }
-      else setSortDirection('asc');
-    } else {
-      setSortColumn(column);
-      setSortDirection('asc');
-    }
-  };
-
-  const sortIndicator = (col: string) => {
-    if (sortColumn !== col) return '';
-    return sortDirection === 'asc' ? ' ▲' : ' ▼';
-  };
-
-  const sortedServices = !sortColumn || !sortDirection
-    ? [...professionalServices].sort((a, b) => {
-        const dateCmp = a.refDate.localeCompare(b.refDate);
-        if (dateCmp !== 0) return dateCmp;
-        return a.ticketNumber.localeCompare(b.ticketNumber);
-      })
-    : [...professionalServices].sort((a, b) => {
-        const sortVal = (valA: any, valB: any): number => {
-          if (typeof valA === 'string' && typeof valB === 'string') {
-            const c = valA.toLowerCase().localeCompare(valB.toLowerCase());
-            return sortDirection === 'asc' ? c : -c;
-          }
-          if (typeof valA === 'boolean' && typeof valB === 'boolean') {
-            return sortDirection === 'asc' ? (valA ? 1 : -1) : (valA ? -1 : 1);
-          }
-          const numA = Number(valA) || 0;
-          const numB = Number(valB) || 0;
-          return sortDirection === 'asc' ? numA - numB : numB - numA;
-        };
-        return sortVal(a[sortColumn as keyof typeof a], b[sortColumn as keyof typeof b]);
-      });
-
-  // Calculate metrics
-  const totalServiceCount = professionalServices.length;
-  const totalFaturamento = professionalServices.reduce((sum, item) => sum + item.totalPrice, 0);
-  const totalComissoes = professionalServices.reduce((sum, item) => sum + item.commissionValue, 0);
-
-  // Group services list for mix of service percentages
-  const mixMap: { [key: string]: number } = {};
-  professionalServices.forEach(item => {
-    // simplify categorizing based on keywords
-    let cat = 'Outros';
-    if (item.serviceName.toLowerCase().includes('corte')) cat = 'Corte';
-    else if (item.serviceName.toLowerCase().includes('color')) cat = 'Coloração';
-    else if (item.serviceName.toLowerCase().includes('escova') || item.serviceName.toLowerCase().includes('hidra')) cat = 'Hidratação';
-    else if (item.serviceName.toLowerCase().includes('unha') || item.serviceName.toLowerCase().includes('manicure')) cat = 'Manicure';
-    
-    mixMap[cat] = (mixMap[cat] || 0) + 1;
-  });
-
-  const mixArray = Object.entries(mixMap).map(([name, val]) => ({
-    name,
-    count: val,
-    percentage: totalServiceCount > 0 ? Math.round((val / totalServiceCount) * 100) : 0
-  })).sort((a, b) => b.count - a.count);
-
-  const months = [
-    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-  ];
+}: ProfessionalDashboardDesktopProps) {
+  const {
+    selectedMonth, setSelectedMonth,
+    selectedYear, setSelectedYear,
+    searchQuery, setSearchQuery,
+    detailItem, setDetailItem,
+    months,
+    sortedServices,
+    totalServiceCount,
+    totalFaturamento,
+    totalComissoes,
+    professionalServices,
+    mixArray,
+    handleSort,
+    sortIndicator
+  } = useCommissionData(professional, comandas, salon);
 
   return (
-    <div className="min-h-screen bg-[#FCF9F2] pb-12 font-sans">
+    <><div className="min-h-screen bg-[#FCF9F2] pb-12 font-sans">
       
       {/* Premium Header Menu Bar */}
       <header className="sticky top-0 z-40 bg-white shadow-xs border-b border-gray-150 px-6 sm:px-12 py-4">
@@ -396,8 +301,16 @@ export default function ProfessionalDashboard({
                           </span>
                         )}
                       </td>
-                      <td className="px-8 py-5 font-black text-right text-gold-500 font-sans">
+                      <td className="px-8 py-5 font-black text-right text-gold-500 font-sans whitespace-nowrap">
                         {formatCurrency(item.commissionValue)}
+                        <button
+                          type="button"
+                          onClick={() => setDetailItem(item)}
+                          className="ml-1.5 inline-flex items-center justify-center w-4.5 h-4.5 rounded-full bg-stone-100 hover:bg-gold-200 text-stone-400 hover:text-gold-900 transition-colors cursor-pointer align-middle"
+                          title="Ver detalhes da comissão"
+                        >
+                          <Calculator className="w-2.5 h-2.5" />
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -415,6 +328,13 @@ export default function ProfessionalDashboard({
         <p className="text-[11px] text-stone-400">© 2026 Gestão Modello • Todos os dados síncronos e processados • Desenvolvido para a Excelência em Gestão</p>
       </footer>
 
-    </div>
+      {/* Commission Detail Modal */}
+      {detailItem && (
+        <CommissionDetailsModal
+          detailItem={detailItem}
+          onClose={() => setDetailItem(null)}
+        />
+      )}
+    </div></>
   );
 }
