@@ -19,7 +19,7 @@ import {
   loadCardAcquirers, saveCardAcquirers, clearSalonMovements, recalculateAllCommissions, deleteSalonDataFull,
   runProfessionalsMigration2026, getLastProfessionalsMigrationReport
 } from './dataStore';
-import { APP_VERSION, APP_BUILD_DATE } from './version';
+import { APP_VERSION, APP_RELEASE_DATE as APP_BUILD_DATE } from './version';
 import { TS, TAB, shortStack, watchReport, watchTicketsPresent, ticketSummary, checkWatchlist, getSyncMetadata, insertForensicEvent, createForensicContext } from './forensic';
 
 import ModalPagamentoPix from './components/ModalPagamentoPix';
@@ -896,27 +896,30 @@ export default function App() {
     console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   tickets=[${allNow.map(c=>c.ticketNumber).join(',')}]`);
     console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   ${watchTicketsPresent(allNow)}`);
 
-    const filtered = allNow.filter(c => c.id !== id);
+    const nowISO = new Date().toISOString();
+    const updated = allNow.map(c => c.id === id ? { ...c, deletedAt: nowISO } : c);
+    const active = updated.filter(c => !c.deletedAt);
 
     // DEPOIS saveComandas
     console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] DEPOIS saveComandas():`);
-    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   quantidade=${filtered.length}`);
-    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   tickets=[${filtered.map(c=>c.ticketNumber).join(',')}]`);
-    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   ${watchTicketsPresent(filtered)}`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   quantidade=${active.length}`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   tickets=[${active.map(c=>c.ticketNumber).join(',')}]`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   ${watchTicketsPresent(active)}`);
 
-    saveComandas(filtered);
+    saveComandas(updated);
     if (currentSalon) {
-      setComandas(filtered.filter(c => c.salonId === currentSalon.id));
+      setComandas(active.filter(c => c.salonId === currentSalon.id));
     }
 
     // Financials
     const allFinancials = loadFinancials();
     const finVinculados = allFinancials.filter(f => f.relatedComandaId === id).length;
     console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] FINANCEIROS: antes=${allFinancials.length} vinculados=${finVinculados}`);
-    const filteredFinancials = allFinancials.filter(f => f.relatedComandaId !== id);
-    saveFinancials(filteredFinancials);
+    const updatedFinancials = allFinancials.map(f => f.relatedComandaId === id ? { ...f, deletedAt: nowISO } : f);
+    const activeFinancials = updatedFinancials.filter(f => !f.deletedAt);
+    saveFinancials(updatedFinancials);
     if (currentSalon) {
-      setFinancials(filteredFinancials.filter(f => f.salonId === currentSalon.id));
+      setFinancials(activeFinancials.filter(f => f.salonId === currentSalon.id));
     }
 
     console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] ===================== EXCLUSAO FINALIZADA =====================`);

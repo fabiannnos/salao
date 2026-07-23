@@ -156,6 +156,7 @@ export interface Comanda {
 
   // Pix static payload (BR Code EMV) generated at checkout when paymentMethod === 'Pix'
   pixPayload?: string;
+  deletedAt?: string;
 }
 
 export interface FinancialRecord {
@@ -172,6 +173,7 @@ export interface FinancialRecord {
   dueDate?: string; // for accounts payable/receivable
   paymentDate?: string; // YYYY-MM-DD (actual cash in/out date)
   reminderDate?: string; // YYYY-MM-DD (for WhatsApp reminder dispatch)
+  deletedAt?: string;
 }
 
 export interface ChartAccountGroup {

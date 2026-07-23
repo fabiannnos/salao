@@ -685,6 +685,43 @@ if (!dbFetchErr && dbTenants && dbTenants.length > 0) {
           },
         }, ctx);
 
+        // SOFT DELETE BLOCKER — impede upsert de comandas que foram soft-deletadas no banco
+        if (mapping.key === 'comandas' && sanitized.length > 0) {
+          const comandaIds = sanitized.map((x: any) => x.id).filter(Boolean);
+          if (comandaIds.length > 0) {
+            try {
+              const { data: softDeleted } = await supabase
+                .from("comandas")
+                .select("id, ticket_number")
+                .in("id", comandaIds)
+                .not("deleted_at", "is", null);
+              if (softDeleted && softDeleted.length > 0) {
+                const blockedIds = new Set(softDeleted.map((r: any) => r.id));
+                const blocked = sanitized.filter((x: any) => blockedIds.has(x.id));
+                sanitized = sanitized.filter((x: any) => !blockedIds.has(x.id));
+                for (const item of blocked) {
+                  console.log(`[SUPA_SYNC][SOFT_DELETE_BLOCKED] comanda id=${item.id} ticket=${item.ticket_number}`);
+                }
+                await insertForensicEvent(supabase, {
+                  event_type:  'SOFT_DELETE_BLOCKED_UPSERT',
+                  entity_type: 'comanda',
+                  entity_id:   null,
+                  metadata:    {
+                    table:           mapping.table,
+                    blocked_count:   blocked.length,
+                    remaining_count: sanitized.length,
+                    blocked_ids:     blocked.map((x: any) => x.id),
+                    blocked_tickets: blocked.map((x: any) => x.ticket_number),
+                  },
+                }, ctx);
+                console.log(`[${TS()}] [SUPA_SYNC] SOFT_DELETE_BLOCKER: ${blocked.length} comanda(s) bloqueada(s), ${sanitized.length} restante(s)`);
+              }
+            } catch (sdErr) {
+              console.warn(`[${TS()}] [SUPA_SYNC] SOFT_DELETE_BLOCKER erro na consulta:`, sdErr);
+            }
+          }
+        }
+
         const result = await supabase.from(mapping.table).upsert(sanitized);
         const { error } = result;
 
@@ -886,8 +923,8 @@ app.get("/api/supa-pull", async (req, res) => {
       supabase.from("services").select("*"),
       supabase.from("products").select("*"),
       supabase.from("clients").select("*"),
-      supabase.from("comandas").select("*"),
-      supabase.from("financials").select("*"),
+      supabase.from("comandas").select("*").is("deleted_at", null),
+      supabase.from("financials").select("*").is("deleted_at", null),
       supabase.from("appointments").select("*")
     ]);
 
@@ -1679,12 +1716,13 @@ app.delete("/api/comandas/:id", async (req, res) => {
       console.error(`%c[${TS()}] [DELETE_SERVER] *** DELETANDO COMANDA MONITORADA: ${comandaInfo.ticket_number} ***`, 'background:red;color:white;font-weight:bold');
     }
 
-    // Se cascade=true, deleta também todos os registros financeiros vinculados
+    // Se cascade=true, soft delete também todos os registros financeiros vinculados
     if (cascade) {
-      console.log(`[${TS()}] [DELETE_SERVER] CASCADE: deletando financials vinculados`);
-      const { data: deletedFinancials, error: finErr } = await supabase
+      console.log(`[${TS()}] [DELETE_SERVER] CASCADE: soft delete financials vinculados`);
+      const nowISO = new Date().toISOString();
+      const { data: updatedFinancials, error: finErr } = await supabase
         .from("financials")
-        .delete()
+        .update({ deleted_at: nowISO })
         .eq("related_comanda_id", comandaId)
         .select("id");
       if (finErr) {
@@ -1693,30 +1731,31 @@ app.delete("/api/comandas/:id", async (req, res) => {
           event_type:  'ERROR',
           entity_type: 'financial',
           entity_id:   comandaId,
-          metadata:    { error: finErr.message, phase: 'cascade_delete_financials' },
+          metadata:    { error: finErr.message, phase: 'cascade_soft_delete_financials' },
         }, ctx);
-        return res.status(500).json({ success: false, error: `Erro ao deletar registros financeiros: ${finErr.message}` });
+        return res.status(500).json({ success: false, error: `Erro ao soft-deletar registros financeiros: ${finErr.message}` });
       }
-      console.log(`[${TS()}] [DELETE_SERVER] CASCADE: ${deletedFinancials?.length || 0} financials removidos`);
+      console.log(`[${TS()}] [DELETE_SERVER] CASCADE: ${updatedFinancials?.length || 0} financials soft-deleted`);
     }
 
-    console.log(`[${TS()}] [DELETE_SERVER] Removendo comanda ${comandaId}...`);
-    const { error } = await supabase.from("comandas").delete().eq("id", comandaId);
+    console.log(`[${TS()}] [DELETE_SERVER] Soft delete comanda ${comandaId}...`);
+    const { error } = await supabase.from("comandas").update({ deleted_at: new Date().toISOString() }).eq("id", comandaId);
     if (error) {
       console.error(`[${TS()}] [DELETE_SERVER] ERRO: ${error.message}`);
       await insertForensicEvent(supabase, {
         event_type:  'ERROR',
         entity_type: 'comanda',
         entity_id:   comandaId,
-        metadata:    { error: error.message, phase: 'delete_comanda' },
+        metadata:    { error: error.message, phase: 'soft_delete_comanda' },
       }, ctx);
       return res.status(500).json({ success: false, error: error.message });
     }
 
-    // DELETE_DB_AFTER — confirma que o registro foi removido
+    // DELETE_DB_AFTER — confirma que o registro não aparece mais como ativo
     const { data: checkAfter } = await supabase
       .from("comandas")
       .select("id")
+      .is("deleted_at", null)
       .eq("id", comandaId)
       .maybeSingle();
 
@@ -1729,10 +1768,10 @@ app.delete("/api/comandas/:id", async (req, res) => {
       entity_id:    comandaId,
       exists_after: existsAfter,
       duration_ms:  durationMs,
-      metadata:     { cascade, ticket: comandaInfo?.ticket_number, duration_ms: durationMs },
+      metadata:     { cascade, ticket: comandaInfo?.ticket_number, duration_ms: durationMs, soft_delete: true },
     }, ctx);
 
-    console.log(`[${TS()}] [DELETE_SERVER] COMANDA REMOVIDA: ${comandaInfo?.ticket_number||comandaId} confirmado= ${!existsAfter}`);
+    console.log(`[${TS()}] [DELETE_SERVER] COMANDA SOFT-DELETED: ${comandaInfo?.ticket_number||comandaId} deleted_at definido`);
     console.log(`[${TS()}] [DELETE_SERVER] ===================== DELETE CONCLUIDO (${durationMs}ms) =====================`);
     res.json({ success: true, cascade });
   } catch (err: any) {

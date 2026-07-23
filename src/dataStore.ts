@@ -209,27 +209,31 @@ export function saveClients(clients: Client[]) {
 export function loadComandas(salonId?: string): Comanda[] {
   initializeStorage();
   const all: Comanda[] = JSON.parse(localStorage.getItem(KEY_COMANDAS) || '[]');
-  console.log(`[${TAB()}] [${TS()}] [DATASTORE] loadComandas() origem=${shortStack()} total=${all.length}`);
-  console.log(`[${TAB()}] [${TS()}] [DATASTORE] tickets=[${all.map(c=>c.ticketNumber).join(',')}]`);
-  watchReport(`loadComandas (${all.length} total)`, all);
-  return salonId ? all.filter(c => c.salonId === salonId) : all;
+  const active = all.filter(c => !c.deletedAt);
+  console.log(`[${TAB()}] [${TS()}] [DATASTORE] loadComandas() origem=${shortStack()} total=${all.length} ativos=${active.length} excluidos=${all.length - active.length}`);
+  console.log(`[${TAB()}] [${TS()}] [DATASTORE] tickets=[${active.map(c=>c.ticketNumber).join(',')}]`);
+  watchReport(`loadComandas (${active.length} ativos)`, active);
+  return salonId ? active.filter(c => c.salonId === salonId) : active;
 }
 
 export function saveComandas(comandas: Comanda[]) {
   const antes = JSON.parse(localStorage.getItem(KEY_COMANDAS) || '[]').length;
-  console.log(`[${TAB()}] [${TS()}] [DATASTORE] saveComandas() origem=${shortStack()} ANTES=${antes} DEPOIS=${comandas.length}`);
-  console.log(`[${TAB()}] [${TS()}] [DATASTORE] tickets salvos=[${comandas.map(c=>c.ticketNumber).join(',')}]`);
-  watchReport(`saveComandas (gravando ${comandas.length})`, comandas);
+  const excluidos = comandas.filter(c => c.deletedAt).length;
+  const ativos = comandas.length - excluidos;
+  console.log(`[${TAB()}] [${TS()}] [DATASTORE] saveComandas() origem=${shortStack()} ANTES=${antes} ATIVOS=${ativos} EXCLUIDOS=${excluidos}`);
+  console.log(`[${TAB()}] [${TS()}] [DATASTORE] tickets salvos=[${comandas.filter(c=>!c.deletedAt).map(c=>c.ticketNumber).join(',')}]`);
+  watchReport(`saveComandas (gravando ${ativos} ativos + ${excluidos} excluidos)`, comandas.filter(c => !c.deletedAt));
   localStorage.setItem(KEY_COMANDAS, JSON.stringify(comandas));
 }
 
 export function loadFinancials(salonId?: string): FinancialRecord[] {
   initializeStorage();
   const all: FinancialRecord[] = JSON.parse(localStorage.getItem(KEY_FINANCIALS) || '[]');
+  const active = all.filter(f => !f.deletedAt);
   
-  // Auto-sync any concluded comandas with isFiado: true that don't have a corresponding receipt record
+  // Auto-sync any active concluded comandas with isFiado: true that don't have a corresponding receipt record
   const comandas: Comanda[] = JSON.parse(localStorage.getItem(KEY_COMANDAS) || '[]');
-  const fiados = comandas.filter(c => c.isFiado && c.status === 'Concluido');
+  const fiados = comandas.filter(c => !c.deletedAt && c.isFiado && c.status === 'Concluido');
   if (fiados.length > 0) {
     console.log(`[${TAB()}] [${TS()}] [DATASTORE] loadFinancials: ${fiados.length} comandas fiado/concluido encontradas`);
     fiados.forEach(c => console.log(`[${TAB()}] [${TS()}] [DATASTORE]   → fiado: ticket=${c.ticketNumber} id=${c.id} valor=${c.totalValue}`));
@@ -241,7 +245,7 @@ export function loadFinancials(salonId?: string): FinancialRecord[] {
   
   let modified = false;
   fiados.forEach(c => {
-    const hasRecord = all.some(f => f.relatedComandaId === c.id && f.type === 'receita');
+    const hasRecord = active.some(f => f.relatedComandaId === c.id && f.type === 'receita');
     if (!hasRecord) {
       console.log(`[${TAB()}] [${TS()}] [DATASTORE] *** AUTO-CRIANDO financial para comanda ${c.ticketNumber} (${c.id}) ***`);
       let cDate: Date;
@@ -268,21 +272,25 @@ export function loadFinancials(salonId?: string): FinancialRecord[] {
         relatedComandaId: c.id,
         dueDate: calculatedDueDate
       };
-      all.push(revRecord);
+      active.push(revRecord);
       modified = true;
     }
   });
 
   if (modified) {
-    localStorage.setItem(KEY_FINANCIALS, JSON.stringify(all));
+    const allDeleted = all.filter(f => f.deletedAt);
+    const persisted = [...active, ...allDeleted];
+    localStorage.setItem(KEY_FINANCIALS, JSON.stringify(persisted));
   }
 
-  return salonId ? all.filter(f => f.salonId === salonId) : all;
+  return salonId ? active.filter(f => f.salonId === salonId) : active;
 }
 
 export function saveFinancials(financials: FinancialRecord[]) {
   const antes = JSON.parse(localStorage.getItem(KEY_FINANCIALS) || '[]').length;
-  console.log(`[${TAB()}] [${TS()}] [DATASTORE] saveFinancials() origem=${shortStack()} ANTES=${antes} DEPOIS=${financials.length}`);
+  const excluidos = financials.filter(f => f.deletedAt).length;
+  const ativos = financials.length - excluidos;
+  console.log(`[${TAB()}] [${TS()}] [DATASTORE] saveFinancials() origem=${shortStack()} ANTES=${antes} ATIVOS=${ativos} EXCLUIDOS=${excluidos}`);
   console.log(`[${TAB()}] [${TS()}] [DATASTORE] relatedComandaIds=[${financials.map(f=>f.relatedComandaId||'none').join(',')}]`);
   localStorage.setItem(KEY_FINANCIALS, JSON.stringify(financials));
 }
