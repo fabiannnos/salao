@@ -13,7 +13,7 @@ export function useCommissionData(professional: Professional, comandas: Comanda[
   const commissionAccrualRule = salon?.commissionAccrualRule ?? 'caixa';
 
   const professionalServices = comandas
-    .filter(c => c.status === 'Concluido')
+    .filter(c => !c.deletedAt && c.status === 'Concluido')
     .flatMap(c =>
       c.services
         .filter(s => s.professionalId === professional.id)

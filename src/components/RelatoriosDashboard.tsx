@@ -240,7 +240,7 @@ export default function RelatoriosDashboard({
   // Extract client name helper (matching FinanceiroDashboard)
   const getRecordClientAndDetail = (item: FinancialRecord) => {
     if (item.relatedComandaId) {
-      const com = comandas.find(c => c.id === item.relatedComandaId);
+      const com = comandas.filter(c => !c.deletedAt).find(c => c.id === item.relatedComandaId);
       if (com) {
         return {
           clientName: com.clientName,
@@ -266,7 +266,7 @@ export default function RelatoriosDashboard({
 
   // Filtered Receivables for Report (combining open/pending + selected month's paid, depending on filter)
   const getFilteredReceivables = () => {
-    const list = financials.filter(f => f.type === 'receita');
+    const list = financials.filter(f => !f.deletedAt && f.type === 'receita');
     
     return list.filter(f => {
       // 1. Status filter matching
@@ -289,7 +289,7 @@ export default function RelatoriosDashboard({
 
   // Filtered Payables for Report
   const getFilteredPayables = () => {
-    const list = financials.filter(f => f.type === 'despesa');
+    const list = financials.filter(f => !f.deletedAt && f.type === 'despesa');
     
     return list.filter(f => {
       const isCommission = f.category === 'Comissão' || f.category === 'Pessoal / Comissões' || f.category?.toLowerCase()?.includes('comis');

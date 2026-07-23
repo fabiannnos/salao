@@ -298,7 +298,7 @@ export default function FinanceiroDashboard({
   // Extract client name and detail for accounts receivable
   const getRecordClientAndDetail = (item: FinancialRecord) => {
     if (item.relatedComandaId) {
-      const com = comandas.find(c => c.id === item.relatedComandaId);
+      const com = comandas.filter(c => !c.deletedAt).find(c => c.id === item.relatedComandaId);
       if (com) {
         return {
           clientName: com.clientName,
@@ -321,6 +321,7 @@ export default function FinanceiroDashboard({
 
   const getCommissionItems = () => {
     const periodComandas = comandas.filter(c => {
+      if (c.deletedAt) return false;
       if (c.status !== 'Concluido') return false;
       const refDate = getComissaoReferenceDate(c, commissionAccrualRule);
       return dateInPeriod(refDate);
@@ -427,41 +428,37 @@ export default function FinanceiroDashboard({
 
   // Filter financial records based on chosen grouping (dueDate / date vs actual paymentDate)
   const monthRecords = financials.filter(f => {
+    if (f.deletedAt) return false;
     if (reportDateType === 'pagamento') {
       return f.status === 'pago' && dateInPeriod(f.paymentDate);
     } else {
-      // Due Date / Emission date fallback
       return dateInPeriod(f.dueDate || f.date);
     }
   });
 
-  // Balanced Pagar & Receber lists: always show all unpaid/pendente + paid matching month (excluding commission records)
-  const currentPagar = financials.filter(f => f.type === 'despesa' && !(f.category === 'Comissão' || f.category === 'Pessoal / Comissões' || f.category?.toLowerCase()?.includes('comis')) && (f.status === 'pendente' || dateInPeriod(f.paymentDate || f.date)));
-  const currentReceber = financials.filter(f => f.type === 'receita' && (f.status === 'pendente' || dateInPeriod(f.paymentDate || f.date)));
+  const currentPagar = financials.filter(f => !f.deletedAt && f.type === 'despesa' && !(f.category === 'Comissão' || f.category === 'Pessoal / Comissões' || f.category?.toLowerCase()?.includes('comis')) && (f.status === 'pendente' || dateInPeriod(f.paymentDate || f.date)));
+  const currentReceber = financials.filter(f => !f.deletedAt && f.type === 'receita' && (f.status === 'pendente' || dateInPeriod(f.paymentDate || f.date)));
 
-  // Filter accounts receivable based on search query (by clientName)
   const filteredReceber = currentReceber.filter(item => {
     if (!receberSearchQuery) return true;
     const { clientName } = getRecordClientAndDetail(item);
     return clientName.toLowerCase().includes(receberSearchQuery.toLowerCase());
   });
 
-  // KPI Calculations (Totalized globally or within the selected month)
   const totalReceita = financials
-    .filter(f => f.type === 'receita' && f.status === 'pago' && dateInPeriod(f.paymentDate || f.date))
+    .filter(f => !f.deletedAt && f.type === 'receita' && f.status === 'pago' && dateInPeriod(f.paymentDate || f.date))
     .reduce((sum, f) => sum + f.amount, 0);
 
-  // Accounts Receivables (Duplicatas) currently "pendente"
   const totalAReceber = financials
-    .filter(f => f.type === 'receita' && f.status === 'pendente')
+    .filter(f => !f.deletedAt && f.type === 'receita' && f.status === 'pendente')
     .reduce((sum, f) => sum + f.amount, 0);
 
   const totalPagar = financials
-    .filter(f => f.type === 'despesa' && f.status === 'pendente' && !(f.category === 'Comissão' || f.category === 'Pessoal / Comissões' || f.category?.toLowerCase()?.includes('comis')))
+    .filter(f => !f.deletedAt && f.type === 'despesa' && f.status === 'pendente' && !(f.category === 'Comissão' || f.category === 'Pessoal / Comissões' || f.category?.toLowerCase()?.includes('comis')))
     .reduce((sum, f) => sum + f.amount, 0);
 
   // Fetch pending comandas under "Competência" Duplicatas
-  const pendingFiados = comandas.filter(c => c.isFiado && c.status === 'Concluido');
+  const pendingFiados = comandas.filter(c => !c.deletedAt && c.isFiado && c.status === 'Concluido');
 
   // Trigger quick manual settlement / "Baixar Comanda"
   const handleSettleAction = (comandaId: string, clientName: string) => {
@@ -497,7 +494,7 @@ export default function FinanceiroDashboard({
       return;
     }
 
-    const selectedItems = financials.filter(f => selectedReceberIds.includes(f.id));
+    const selectedItems = financials.filter(f => !f.deletedAt && selectedReceberIds.includes(f.id));
     const totalSelected = selectedItems.reduce((sum, item) => sum + item.amount, 0);
 
     const reportTitle = `Extrato_de_Debitos_${new Date().toISOString().split('T')[0]}`;
@@ -580,7 +577,7 @@ export default function FinanceiroDashboard({
     }
 
     const targetDateStr = customPaymentDate || massActionPaymentDate || new Date().toISOString().split('T')[0];
-    const itemsToSettle = financials.filter(f => selectedReceberIds.includes(f.id) && f.status === 'pendente');
+    const itemsToSettle = financials.filter(f => !f.deletedAt && selectedReceberIds.includes(f.id) && f.status === 'pendente');
 
     if (itemsToSettle.length === 0) {
       setAlertState({message: "Nenhum item PENDENTE selecionado para baixa coletiva.", variant: 'error'});
@@ -607,7 +604,7 @@ export default function FinanceiroDashboard({
 
       // Synchronize related comanda if relevant
       if (item.relatedComandaId) {
-        const com = comandas.find(c => c.id === item.relatedComandaId);
+        const com = comandas.filter(c => !c.deletedAt).find(c => c.id === item.relatedComandaId);
         if (com) {
           const comandaMethodMap: { [key: string]: 'Dinheiro' | 'Cartão Credito' | 'Cartão Debito' | 'Pix' | 'Caderno' } = {
             'Dinheiro': 'Dinheiro',
@@ -1748,7 +1745,7 @@ export default function FinanceiroDashboard({
                     <div>
                       <p className="text-[9.5px] uppercase font-black tracking-widest text-[#a0854c] mb-1">Resumo das Duplicatas</p>
                       <p className="text-xs text-stone-600">Total de Contas Selecionadas: <strong className="font-mono text-stone-950 font-bold">{selectedReceberIds.length} item(ns)</strong></p>
-                      <p className="text-xs text-stone-600">Soma Total dos Créditos: <strong className="font-serif text-sm text-stone-950 font-extrabold">{formatCurrency(financials.filter(f => selectedReceberIds.includes(f.id)).reduce((sum, item) => sum + item.amount, 0))}</strong></p>
+                      <p className="text-xs text-stone-600">Soma Total dos Créditos: <strong className="font-serif text-sm text-stone-950 font-extrabold">{formatCurrency(financials.filter(f => !f.deletedAt && selectedReceberIds.includes(f.id)).reduce((sum, item) => sum + item.amount, 0))}</strong></p>
                     </div>
                     <span className="bg-amber-100 text-[#a0854c] px-3 py-1 text-[9px] uppercase font-black tracking-widest rounded-full font-mono">
                       LOTE EM LIQUIDAÇÃO
@@ -1914,7 +1911,7 @@ export default function FinanceiroDashboard({
 
                         // Synchronize related comanda if relevant
                         if (settlingItem.relatedComandaId) {
-                          const com = comandas.find(c => c.id === settlingItem.relatedComandaId);
+                          const com = comandas.filter(c => !c.deletedAt).find(c => c.id === settlingItem.relatedComandaId);
                           if (com) {
                             const comandaMethodMap: { [key: string]: 'Dinheiro' | 'Cartão Credito' | 'Cartão Debito' | 'Pix' | 'Caderno' } = {
                               'Dinheiro': 'Dinheiro',
@@ -2066,7 +2063,7 @@ export default function FinanceiroDashboard({
               const comId = item.comandaId;
               let cObj = comandaUpdatesMap[comId];
               if (!cObj) {
-                const orig = comandas.find(c => c.id === comId);
+                const orig = comandas.filter(c => !c.deletedAt).find(c => c.id === comId);
                 if (orig) {
                   cObj = JSON.parse(JSON.stringify(orig));
                   comandaUpdatesMap[comId] = cObj;

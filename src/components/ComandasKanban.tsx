@@ -67,6 +67,7 @@ export default function ComandasKanban({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [reportDateType, setReportDateType] = useState<'lancamento' | 'pagamento'>('lancamento');
   const [activeView, setActiveView] = useState<'kanban' | 'maintenance'>('kanban');
 
   // Modal State
@@ -141,7 +142,7 @@ export default function ComandasKanban({
   }, [currentSalon?.cardFeePercentProfDeduct]);
 
   const activeComandaForPix = activeCheckoutComandaId
-    ? comandas.find(c => c.id === activeCheckoutComandaId)
+    ? comandas.filter(c => !c.deletedAt).find(c => c.id === activeCheckoutComandaId)
     : null;
 
   // Cache em memória do último PIX fetched para a sessão atual.
@@ -371,7 +372,7 @@ export default function ComandasKanban({
     const comandaId = e.dataTransfer.getData('text/plain');
     if (!comandaId) return;
 
-    const cmd = comandas.find(c => c.id === comandaId);
+    const cmd = comandas.filter(c => !c.deletedAt).find(c => c.id === comandaId);
     if (!cmd) return;
 
     if (targetStatus === 'Concluido') {
@@ -392,12 +393,13 @@ export default function ComandasKanban({
 
   // Filter comandas by search query AND month/year period
   const filteredComandas = comandas.filter(c => {
+    if (c.deletedAt) return false;
     const matchesSearch = 
       c.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.ticketNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.services.some(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    const matchesPeriod = dateInFilter(c.dateCreated);
+    const matchesPeriod = dateInFilter(reportDateType === 'pagamento' ? (c.paymentDate || c.dateCreated) : c.dateCreated);
     return matchesSearch && matchesPeriod;
   });
 
@@ -605,7 +607,7 @@ export default function ComandasKanban({
 
     if (editingComandaId) {
       // Edit Comanda
-      const orig = comandas.find(c => c.id === editingComandaId);
+      const orig = comandas.filter(c => !c.deletedAt).find(c => c.id === editingComandaId);
       if (!orig) return;
 
       const updated: Comanda = {
@@ -641,7 +643,7 @@ export default function ComandasKanban({
     } else {
       // Create Comanda
       // PD-15: usa o maior número existente + 1 para evitar colisão após exclusões
-      const maxTicket = comandas.reduce((max, c) => {
+      const maxTicket = comandas.filter(c => !c.deletedAt).reduce((max, c) => {
         const match = c.ticketNumber?.match(/(\d+)$/);
         if (!match) return max;
         const n = parseInt(match[1], 10);
@@ -786,7 +788,7 @@ export default function ComandasKanban({
     const isFiadoType = cardPaymentMethod === 'Duplicata';
     const methodStr = isFiadoType ? 'Caderno' : cardPaymentMethod;
 
-    const comanda = comandas.find(c => c.id === comandaId);
+    const comanda = comandas.filter(c => !c.deletedAt).find(c => c.id === comandaId);
     if (!comanda) return;
 
     // Preventative double-confirmation modal for credit/debit card payments
@@ -794,7 +796,6 @@ export default function ComandasKanban({
       setShowCardConfirmModal({ comandaId, skipWA });
       return;
     }
-
     let cardDetails: any = undefined;
     if (cardPaymentMethod === 'Cartão Credito' || cardPaymentMethod === 'Cartão Debito') {
       const calc = getCardFeeCalculations(comanda.totalValue, cardPaymentMethod);
@@ -914,6 +915,29 @@ export default function ComandasKanban({
 
         {/* Period selection */}
         <div className="flex flex-wrap items-center gap-3">
+          {/* Report date type filter */}
+          <div className="flex flex-col">
+            <span className="text-[9px] uppercase tracking-wider text-stone-400 font-bold ml-1 mb-1">Filtrar Relatório Por</span>
+            <div className="inline-flex rounded-lg border border-stone-250 p-0.5 bg-stone-50">
+              <button
+                onClick={() => setReportDateType('lancamento')}
+                className={`text-[10px] uppercase font-bold px-3 py-1.5 rounded-md transition-all ${
+                  reportDateType === 'lancamento' ? 'bg-black text-white' : 'text-stone-500'
+                }`}
+              >
+                Lançamento
+              </button>
+              <button
+                onClick={() => setReportDateType('pagamento')}
+                className={`text-[10px] uppercase font-bold px-3 py-1.5 rounded-md transition-all ${
+                  reportDateType === 'pagamento' ? 'bg-black text-white' : 'text-stone-500'
+                }`}
+              >
+                Pagamento
+              </button>
+            </div>
+          </div>
+
           <div className="flex flex-col w-32">
             <span className="text-[9px] uppercase tracking-wider text-stone-400 font-bold ml-1 mb-1">Mês</span>
             <select
@@ -1651,7 +1675,7 @@ export default function ComandasKanban({
       {/* Card Payment Double-Confirmation Modal */}
       {showCardConfirmModal && (() => {
         const { comandaId, skipWA } = showCardConfirmModal;
-        const comanda = comandas.find(c => c.id === comandaId);
+        const comanda = comandas.filter(c => !c.deletedAt).find(c => c.id === comandaId);
         if (!comanda) return null;
 
         const calc = getCardFeeCalculations(comanda.totalValue, cardPaymentMethod);
@@ -2451,7 +2475,7 @@ export default function ComandasKanban({
               <div className="space-y-3 pt-6 border-t border-stone-850">
                 {(() => {
                   const isEditing = !!editingComandaId;
-                  const currentStatus: string | undefined = isEditing ? comandas.find(c => c.id === editingComandaId)?.status : undefined;
+                  const currentStatus: string | undefined = isEditing ? comandas.filter(c => !c.deletedAt).find(c => c.id === editingComandaId)?.status : undefined;
                   const isAberto = currentStatus === 'Aberto';
                   const isEmAtendimento = currentStatus === 'Em Atendimento';
                   const isConcluido = currentStatus === 'Concluido';

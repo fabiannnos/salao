@@ -82,6 +82,7 @@ export default function DashboardAdmin({
 
   // Monthly filtered records
   const monthlyFinancials = financials.filter(f => {
+    if (f.deletedAt) return false;
     try {
       const { year, month } = getRecordDateDetails(f.date);
       return year === selectedYear && month === selectedMonth;
@@ -91,6 +92,7 @@ export default function DashboardAdmin({
   });
 
   const monthlyComandas = comandas.filter(c => {
+    if (c.deletedAt) return false;
     try {
       const { year, month } = getComandaDateDetails(c.dateCreated);
       return year === selectedYear && month === selectedMonth;
@@ -109,6 +111,7 @@ export default function DashboardAdmin({
   });
 
   const commissionComandas = comandas.filter(c => {
+    if (c.deletedAt) return false;
     if (c.status !== 'Concluido') return false;
     const refDate = getComissaoReferenceDate(c, commissionAccrualRule);
     if (!refDate) return false;

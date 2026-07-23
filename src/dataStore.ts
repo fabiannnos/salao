@@ -334,20 +334,18 @@ export function saveServiceCategories(categories: ServiceCategory[]) {
 
 // Logic Triggers
 export function addComandaAndUpdateFinance(comanda: Comanda): { comanda: Comanda; triggeredFinance: FinancialRecord[] } {
-  // Store Comanda
   const comandas = JSON.parse(localStorage.getItem(KEY_COMANDAS) || '[]') as Comanda[];
   comandas.push(comanda);
   localStorage.setItem(KEY_COMANDAS, JSON.stringify(comandas));
 
   const triggeredFinance: FinancialRecord[] = [];
 
-  // If finalized immediately (Concluido), write to financial records
   if (comanda.status === 'Concluido') {
     console.log(`[DATASTORE] addComandaAndUpdateFinance: comanda ${comanda.ticketNumber} CONCLUIDO, criando financeiros`);
     const financials = JSON.parse(localStorage.getItem(KEY_FINANCIALS) || '[]') as FinancialRecord[];
+    const activeFinancials = financials.filter(f => !f.deletedAt);
 
-    // 1. Revenue Record (Service sales) — apenas se ainda não existe
-    const alreadyHasRevenue = financials.some(f => f.relatedComandaId === comanda.id && f.type === 'receita');
+    const alreadyHasRevenue = activeFinancials.some(f => f.relatedComandaId === comanda.id && f.type === 'receita');
     console.log(`[DATASTORE] addComandaAndUpdateFinance: alreadyHasRevenue=${alreadyHasRevenue}`);
     if (!alreadyHasRevenue) {
       const revRecord: FinancialRecord = {
@@ -370,7 +368,7 @@ export function addComandaAndUpdateFinance(comanda: Comanda): { comanda: Comanda
 
     // If card payment with registered transaction fee expense — apenas se ainda não existe
     if ((comanda.paymentMethod === 'Cartão Credito' || comanda.paymentMethod === 'Cartão Debito') && comanda.cardFeeAmount && comanda.cardFeeAmount > 0) {
-      const alreadyHasFee = financials.some(f => f.relatedComandaId === comanda.id && f.type === 'despesa' && f.category === 'Taxas de Cartão');
+      const alreadyHasFee = activeFinancials.some(f => f.relatedComandaId === comanda.id && f.type === 'despesa' && f.category === 'Taxas de Cartão');
       if (!alreadyHasFee) {
         const feeRecord: FinancialRecord = {
           id: 'fin_trig_fee_' + Math.random().toString(36).substr(2, 9),
@@ -430,7 +428,7 @@ export function updateComandaStatus(
   overrides?: { competenceDate?: string; paymentDate?: string }
 ): Comanda | null {
   const comandas = JSON.parse(localStorage.getItem(KEY_COMANDAS) || '[]') as Comanda[];
-  const index = comandas.findIndex(c => c.id === comandaId);
+  const index = comandas.findIndex(c => c.id === comandaId && !c.deletedAt);
   if (index === -1) return null;
 
   const oldStatus = comandas[index].status;
@@ -519,13 +517,12 @@ export function updateComandaStatus(
     // Trigger financial recording
     const comanda = comandas[index];
     const financials = JSON.parse(localStorage.getItem(KEY_FINANCIALS) || '[]') as FinancialRecord[];
+    const activeFinancials = financials.filter(f => !f.deletedAt);
 
-    // Save comanda back before updating financials
     localStorage.setItem(KEY_COMANDAS, JSON.stringify(comandas));
     console.log(`[DATASTORE] updateComandaStatus: comanda ${comanda.ticketNumber} movida para CONCLUIDO, criando financeiros`);
 
-    // 1. Revenue Record (Service sales) — apenas se ainda não existe
-    const alreadyHasRevenue = financials.some(f => f.relatedComandaId === comandaId && f.type === 'receita');
+    const alreadyHasRevenue = activeFinancials.some(f => f.relatedComandaId === comandaId && f.type === 'receita');
     console.log(`[DATASTORE] updateComandaStatus: alreadyHasRevenue=${alreadyHasRevenue}`);
     if (!alreadyHasRevenue) {
       const revRecord: FinancialRecord = {
@@ -546,7 +543,7 @@ export function updateComandaStatus(
 
     // If card payment with registered transaction fee expense — apenas se ainda não existe
     if ((finalPaymentMethod === 'Cartão Credito' || finalPaymentMethod === 'Cartão Debito') && comanda.cardFeeAmount && comanda.cardFeeAmount > 0) {
-      const alreadyHasFee = financials.some(f => f.relatedComandaId === comandaId && f.type === 'despesa' && f.category === 'Taxas de Cartão');
+      const alreadyHasFee = activeFinancials.some(f => f.relatedComandaId === comandaId && f.type === 'despesa' && f.category === 'Taxas de Cartão');
       if (!alreadyHasFee) {
         const feeRecord: FinancialRecord = {
           id: 'fin_trig_fee_' + Math.random().toString(36).substr(2, 9),
