@@ -1835,23 +1835,13 @@ export default function App() {
               Ajuda
             </h3>
 
-            <button
-              onClick={handleClearCacheAndReload}
-              className={`
-                w-full flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer
-                ${clearCacheConfirm ? 'bg-amber-700 hover:bg-amber-600 ring-2 ring-amber-400' : ''}
-              `}
+            <div
+              className="w-full flex items-center justify-center gap-2 bg-stone-400 text-white font-bold text-xs py-3 rounded-xl cursor-not-allowed select-none"
+              title="Botão temporariamente desativado"
             >
               <RefreshCw className="w-4 h-4" />
-              <span>{clearCacheConfirm ? 'Clique novamente para confirmar' : 'Limpar Cache e Atualizar'}</span>
-            </button>
-
-            {clearCacheConfirm && (
-              <p className="text-[9px] text-amber-700 text-center bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
-                Esta ação irá atualizar arquivos temporários do sistema.<br />
-                Os dados do salão serão preservados.
-              </p>
-            )}
+              <span>Limpar Cache e Atualizar</span>
+            </div>
 
             <a
               href="https://wa.me/5581999982848?text=Ol%C3%A1!%0A%0AEstou%20precisando%20de%20ajuda%20com%20o%20Gest%C3%A3o%20Modello.%0A%0AMeu%20sal%C3%A3o%20%C3%A9%3A"
