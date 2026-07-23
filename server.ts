@@ -6,6 +6,7 @@ import { MercadoPagoConfig, Payment } from "mercadopago";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import { tenantAccessGuard, invalidateTenantCache } from "./middleware/tenantAccessGuard";
+import { WATCH_TICKETS, TS, watchTicketsPresent, checkWatchlist, watchReport, insertForensicEvent, createForensicContext, getDeviceId } from "./src/forensic";
 
 console.log('[Bootstrap] server.ts — todos os imports ESM resolvidos. Iniciando dotenv...');
 dotenv.config();
@@ -431,9 +432,57 @@ app.post("/api/checkout/simulate-webhook", express.json(), async (req, res) => {
 // Endpoint de sincronização manual e automática local -> Supabase Cloud
 app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => {
   const payload = req.body;
+  const supabase = getSupabase();
+  
+  // LOG FORENSE: analisar payload
+  const comandasRecebidas = payload.comandas || [];
+  const ticketsRecebidos = comandasRecebidas.map((c: any) => c.ticketNumber);
+  const financialsRecebidos = payload.financials || [];
+  const relatedComandaIds = financialsRecebidos.map((f: any) => f.relatedComandaId).filter(Boolean);
+  console.log(`[${TS()}] [SUPA_SYNC] ===================== RECEBIDO POST /api/supa-sync =====================`);
+  console.log(`[${TS()}] [SUPA_SYNC] comandas=${comandasRecebidas.length} tickets=[${ticketsRecebidos.join(',')}]`);
+  console.log(`[${TS()}] [SUPA_SYNC] ${watchTicketsPresent(comandasRecebidas)}`);
+  console.log(`[${TS()}] [SUPA_SYNC] financials=${financialsRecebidos.length} relatedComandaIds=[${relatedComandaIds.join(',')}]`);
+  
+  // LOG FORENSE — syncMetadata (deviceId, tabId, userAgent, etc.)
+  const syncMeta = payload.syncMetadata || {};
+  console.log(`[${TS()}] [SUPA_SYNC] SYNC_METADATA deviceId=${syncMeta.deviceId||'N/A'} tabId=${syncMeta.tabId||'N/A'} userAgent=${(syncMeta.userAgent||'N/A').substring(0,120)} platform=${syncMeta.platform||'N/A'} screen=${syncMeta.screen||'N/A'} url=${syncMeta.url||'N/A'} ts=${syncMeta.timestamp||'N/A'}`);
+  
+  // LOG FORENSE — salonId dos payloads
+  const tenantIds = (payload.tenants||[]).map((t:any)=>t.id).filter(Boolean);
+  const salonIdsFromComandas = [...new Set(comandasRecebidas.map((c:any)=>c.salonId).filter(Boolean))];
+  const salonIdsFromFinancials = [...new Set(financialsRecebidos.map((f:any)=>f.salonId).filter(Boolean))];
+  console.log(`[${TS()}] [SUPA_SYNC] SALON_IDS tenants=[${tenantIds.join(',')}] comandas=[${salonIdsFromComandas.join(',')}] financials=[${salonIdsFromFinancials.join(',')}]`);
+  
+  // DESTAQUE especial para comandas monitoradas no payload
+  const watchedInPayload = checkWatchlist(comandasRecebidas);
+  if (watchedInPayload.length > 0) {
+    console.error(`%c[${TS()}] [SUPA_SYNC] *** COMANDAS MONITORADAS ENVIADAS NO PAYLOAD: ${watchedInPayload.map(w=>`${w.ticket}(${w.id})`).join(', ')} ***`, 'background:red;color:white;font-weight:bold');
+  }
+  
+  // RELATORIO FORENSE: para cada ticket monitorado no payload, verificar se existe no DB
+  if (watchedInPayload.length > 0) {
+    console.error(`%c[${TS()}] [SUPA_SYNC] >>>>>>>>>> RELATORIO PRE-UPSERT MONITORADO <<<<<<<<<<`, 'background:red;color:white;font-weight:bold');
+    console.error(`[${TS()}] [SUPA_SYNC] ORIGEM: deviceId=${syncMeta.deviceId||'N/A'} tabId=${syncMeta.tabId||'N/A'}`);
+    console.error(`[${TS()}] [SUPA_SYNC] QUANTIDADE RECEBIDA: ${comandasRecebidas.length}`);
+    console.error(`[${TS()}] [SUPA_SYNC] TICKETS MONITORADOS NO PAYLOAD:`);
+    for (const w of watchedInPayload) {
+      const { data: existing } = await supabase
+        .from("comandas")
+        .select("id, ticket_number, status")
+        .eq("ticket_number", w.ticket)
+        .maybeSingle();
+      if (existing) {
+        console.error(`[${TS()}] [SUPA_SYNC]   TICKET=${w.ticket} idPayload=${w.id} -> EXISTE NO DB (id=${existing.id} status=${existing.status}) SERA ATUALIZADO`);
+      } else {
+        console.error(`%c[${TS()}] [SUPA_SYNC]   TICKET=${w.ticket} idPayload=${w.id} -> NAO EXISTE NO DB *** SERA CRIADO PELO UPSERT ***`, 'background:red;color:white;font-weight:bold');
+      }
+    }
+  }
   
   const hasSupabase = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!hasSupabase) {
+    console.log(`[SUPA_SYNC] Supabase nao configurado: modo mock`);
     return res.json({
       success: true,
       message: "Sincronização simulada executada com sucesso na sua máquina de desenvolvimento. Para persistência real, conecte o Supabase em Configurações.",
@@ -448,10 +497,11 @@ app.post("/api/supa-sync", express.json({ limit: "50mb" }), async (req, res) => 
     });
   }
 
+  const t0 = Date.now();
   try {
-    const supabase = getSupabase();
     const results: any = {};
     const errors: any = {};
+    const ctx = createForensicContext({ ipAddress: req.ip || req.socket?.remoteAddress });
 
     // Mapper conversion functions to map camelCase fields and sanitise for Postgres snake_case schema columns
     const mapTenant = (t: any) => ({
@@ -595,13 +645,99 @@ if (!dbFetchErr && dbTenants && dbTenants.length > 0) {
           }
         }
 
+        console.log(`[${TS()}] [SUPA_SYNC] Upserting ${mapping.table}: ${sanitized.length} registros`);
+        
+        // SUPA_SYNC_BEFORE_UPSERT — verifica existência e registra evento forense
+        if (mapping.key === 'comandas') {
+          console.log(`[${TS()}] [SUPA_SYNC] COMANDAS sendo upsertadas: tickets=[${sanitized.map((x:any)=>x.ticket_number).join(',')}]`);
+          const watched = checkWatchlist(sanitized.map((x:any)=>({ticketNumber: x.ticket_number, id: x.id})));
+          if (watched.length > 0) {
+            console.error(`%c[${TS()}] [SUPA_SYNC] *** UPSERT DE COMANDAS MONITORADAS: ${watched.map(w=>`${w.ticket}(${w.id})`).join(', ')} ***`, 'background:red;color:white;font-weight:bold');
+          }
+          // Batch check existence no DB para todas as comandas do lote
+          const allIds = sanitized.map((x:any)=>x.id).filter(Boolean);
+          let existingIds = new Set<string>();
+          if (allIds.length > 0) {
+            try {
+              const { data: dbExisting } = await supabase
+                .from("comandas")
+                .select("id")
+                .in("id", allIds);
+              if (dbExisting) {
+                existingIds = new Set(dbExisting.map((r:any)=>r.id));
+              }
+            } catch (_) { /* ignora erro na checagem forense */ }
+          }
+          for (const item of sanitized) {
+            const existsBefore = existingIds.has(item.id);
+            await insertForensicEvent(supabase, {
+              event_type:   'SUPA_SYNC_BEFORE_UPSERT',
+              entity_type:  'comanda',
+              entity_id:    item.id,
+              exists_before: existsBefore,
+              payload_json: item,
+              metadata:     { table: mapping.table, ticket_number: item.ticket_number, watch_ticket: item.ticket_number && WATCH_TICKETS.includes(item.ticket_number) ? true : undefined },
+            }, ctx);
+          }
+        } else if (mapping.key === 'financials') {
+          for (const item of sanitized) {
+            await insertForensicEvent(supabase, {
+              event_type:   'SUPA_SYNC_BEFORE_UPSERT',
+              entity_type:  'financial',
+              entity_id:    item.id,
+              payload_json: { related_comanda_id: item.related_comanda_id, type: item.type, amount: item.amount },
+              metadata:     { table: mapping.table },
+            }, ctx);
+          }
+        } else {
+          for (const item of sanitized) {
+            await insertForensicEvent(supabase, {
+              event_type:   'SUPA_SYNC_BEFORE_UPSERT',
+              entity_type:  mapping.table,
+              entity_id:    item.id,
+              payload_json: { id: item.id },
+              metadata:     { table: mapping.table },
+            }, ctx);
+          }
+        }
         const result = await supabase.from(mapping.table).upsert(sanitized);
         const { error } = result;
 
-        console.log("RESULTADO", JSON.stringify(result, null, 2));
+        if (mapping.key === 'comandas') {
+          if (error) {
+            console.error(`[${TS()}] [SUPA_SYNC] UPSERT ERROR comandas: ${error.message}`);
+          } else {
+            console.log(`[${TS()}] [SUPA_SYNC] UPSERT FINALIZADO comandas: ${sanitized.length} registros`);
+            console.log(`[${TS()}] [SUPA_SYNC] tickets gravados=[${sanitized.map((x:any)=>x.ticket_number).join(',')}]`);
+          }
+          // SUPA_SYNC_AFTER_UPSERT - confirma se as comandas existem após o upsert
+          const allIds = sanitized.map((x:any)=>x.id).filter(Boolean);
+          let afterIds = new Set<string>();
+          if (allIds.length > 0) {
+            try {
+              const { data: dbAfter } = await supabase
+                .from("comandas")
+                .select("id")
+                .in("id", allIds);
+              if (dbAfter) {
+                afterIds = new Set(dbAfter.map((r:any)=>r.id));
+              }
+            } catch (_) { /* ignora */ }
+          }
+          for (const item of sanitized) {
+            const existsAfter = !error && afterIds.has(item.id);
+            await insertForensicEvent(supabase, {
+              event_type:   'SUPA_SYNC_AFTER_UPSERT',
+              entity_type:  'comanda',
+              entity_id:    item.id,
+              exists_after: existsAfter,
+              metadata:     { ticket_number: item.ticket_number, upsert_ok: !error, watch_ticket: item.ticket_number && WATCH_TICKETS.includes(item.ticket_number) ? true : undefined },
+            }, ctx);
+          }
+        }
 
         if (error) {
-          console.error(`Erro ao sincronizar tabela ${mapping.table}:`, error);
+          console.error(`[SUPA_SYNC] Erro tabela ${mapping.table}:`, error.message);
           errors[mapping.key] = error.message;
         } else {
           results[mapping.key] = sanitized.length;
@@ -645,6 +781,7 @@ if (!dbFetchErr && dbTenants && dbTenants.length > 0) {
       console.error("Erro ao puxar lista atualizada de inquilinos:", fetchErr);
     }
 
+    console.log(`[${TS()}] [SUPA_SYNC] RESPOSTA: success=${Object.keys(errors).length === 0} results=${JSON.stringify(results)}`);
     res.json({
       success: Object.keys(errors).length === 0,
       message: Object.keys(errors).length === 0 
@@ -656,7 +793,7 @@ if (!dbFetchErr && dbTenants && dbTenants.length > 0) {
       tenants: updatedTenants.length > 0 ? updatedTenants : undefined
     });
   } catch (err: any) {
-    console.error("Erro no fluxo do supa-sync endpoint:", err);
+    console.error(`[${TS()}] [SUPA_SYNC] ERRO:`, err);
     res.status(500).json({ error: err?.message || err?.toString() || "Erro inesperado", success: false });
   }
 });
@@ -724,6 +861,7 @@ app.post("/api/update-tenant-billing", express.json(), async (req, res) => {
 app.get("/api/supa-pull", async (req, res) => {
   const hasSupabase = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!hasSupabase) {
+    console.log(`[${TS()}] [SUPA_PULL] Supabase nao configurado: modo mock`);
     return res.json({
       success: true,
       isMock: true,
@@ -731,8 +869,11 @@ app.get("/api/supa-pull", async (req, res) => {
     });
   }
 
+  console.log(`[${TS()}] [SUPA_PULL] ===================== SUPA-PULL INICIADO =====================`);
+  const t0 = Date.now();
   try {
     const supabase = getSupabase();
+    const ctx = createForensicContext({ ipAddress: req.ip || req.socket?.remoteAddress });
 
     // Fetch from all tables in parallel
     const [
@@ -905,6 +1046,37 @@ app.get("/api/supa-pull", async (req, res) => {
       services: a.services || []
     }));
 
+    const tickets = (comandas||[]).map((c:any) => c.ticketNumber);
+    const finCount = (financials||[]).length;
+    console.log(`[${TS()}] [SUPA_PULL] RESPONDENDO: comandas=${comandas?.length||0} financials=${finCount}`);
+    console.log(`[${TS()}] [SUPA_PULL] tickets=[${tickets.join(',')}]`);
+    console.log(`[${TS()}] [SUPA_PULL] ${watchTicketsPresent(comandas||[])}`);
+    watchReport(`supa-pull resposta`, comandas||[]);
+
+    // SUPA_PULL_RESPONSE — registro forense com contagens e detalhes por comanda
+    await insertForensicEvent(supabase, {
+      event_type:   'SUPA_PULL_RESPONSE',
+      payload_json: {
+        tenants:      (tenants||[]).length,
+        professionals: (professionals||[]).length,
+        services:     (services||[]).length,
+        products:     (products||[]).length,
+        clients:      (clients||[]).length,
+        comandas:     (comandas||[]).length,
+        financials:   (financials||[]).length,
+        appointments: (appointments||[]).length,
+      },
+      metadata: {
+        tickets,
+        watch_tickets: WATCH_TICKETS.map(t => {
+          const found = (comandas||[]).find((c:any) => c.ticketNumber === t);
+          return { ticket: t, returned: !!found, id: found?.id || null, status: found?.status || null };
+        }),
+        duration_ms: Date.now() - t0,
+      },
+    }, ctx);
+
+    console.log(`[${TS()}] [SUPA_PULL] ===================== SUPA-PULL CONCLUIDO =====================`);
     res.json({
       success: true,
       isMock: false,
@@ -919,7 +1091,7 @@ app.get("/api/supa-pull", async (req, res) => {
       errors: Object.keys(errors).length > 0 ? errors : undefined
     });
   } catch (err: any) {
-    console.error("Erro no fluxo do supa-pull endpoint:", err);
+    console.error(`[${TS()}] [SUPA_PULL] ERRO:`, err);
     res.status(500).json({ error: err?.message || err?.toString() || "Erro inesperado", success: false });
   }
 });
@@ -1429,74 +1601,160 @@ app.get("/api/comandas", async (req, res) => {
     const { data, error } = await query;
     if (error) throw error;
     const comandas = (data || []).map(comandaFromDb);
+    console.log(`[${TS()}] [REST_COMANDA] GET /api/comandas: ${comandas.length} comandas tickets=[${comandas.map((c:any)=>c.ticketNumber).join(',')}]`);
+    watchReport(`GET /api/comandas`, comandas);
     res.json({ success: true, comandas });
   } catch (err: any) {
+    console.error(`[${TS()}] [REST_COMANDA] GET /api/comandas ERRO:`, err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 app.post("/api/comandas", express.json(), async (req, res) => {
+  const comandaBody = req.body;
+  console.log(`[${TS()}] [REST_COMANDA] POST /api/comandas ticket=${comandaBody?.ticketNumber||'?'} cliente=${comandaBody?.clientName||'?'}`);
+  if (comandaBody?.ticketNumber && WATCH_TICKETS.includes(comandaBody.ticketNumber)) {
+    console.error(`%c[${TS()}] [REST_COMANDA] *** CRIANDO COMANDA MONITORADA: ${comandaBody.ticketNumber} ***`, 'background:red;color:white;font-weight:bold');
+  }
   try {
     const supabase = getSupabase();
     const dbComanda = comandaToDb(req.body);
     const { data, error } = await supabase.from("comandas").insert(dbComanda).select();
     if (error) throw error;
     const comanda = data?.[0] ? comandaFromDb(data[0]) : null;
+    console.log(`[${TS()}] [REST_COMANDA] POST RESULTADO: id=${comanda?.id} ticket=${comanda?.ticketNumber}`);
     res.json({ success: true, comanda });
   } catch (err: any) {
+    console.error(`[${TS()}] [REST_COMANDA] POST /api/comandas ERRO:`, err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 app.put("/api/comandas/:id", express.json(), async (req, res) => {
+  const comandaBody = req.body;
+  console.log(`[${TS()}] [REST_COMANDA] PUT /api/comandas/${req.params.id} ticket=${comandaBody?.ticketNumber||'?'}`);
+  if (comandaBody?.ticketNumber && WATCH_TICKETS.includes(comandaBody.ticketNumber)) {
+    console.error(`%c[${TS()}] [REST_COMANDA] *** ATUALIZANDO COMANDA MONITORADA: ${comandaBody.ticketNumber} ***`, 'background:red;color:white;font-weight:bold');
+  }
   try {
     const supabase = getSupabase();
     const dbComanda = comandaToDb(req.body);
     const { data, error } = await supabase.from("comandas").update(dbComanda).eq("id", req.params.id).select();
     if (error) throw error;
     const comanda = data?.[0] ? comandaFromDb(data[0]) : null;
+    console.log(`[${TS()}] [REST_COMANDA] PUT RESULTADO: ticket=${comanda?.ticketNumber}`);
     res.json({ success: true, comanda });
   } catch (err: any) {
+    console.error(`[${TS()}] [REST_COMANDA] PUT /api/comandas ERRO:`, err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 app.delete("/api/comandas/:id", async (req, res) => {
+  const t0 = Date.now();
+  const supabase = getSupabase();
+  const comandaId = req.params.id;
+  const cascade = req.query.cascade === "true";
+  const ctx = createForensicContext({ ipAddress: req.ip || req.socket?.remoteAddress });
+
+  console.log(`[${TS()}] [DELETE_SERVER] ===================== DELETE INICIADO =====================`);
+  console.log(`[${TS()}] [DELETE_SERVER] id=${comandaId} cascade=${cascade}`);
+
   try {
-    const supabase = getSupabase();
-    const comandaId = req.params.id;
-    const cascade = req.query.cascade === "true";
+    // DELETE_DB_BEFORE — consulta estado atual no banco
+    const { data: comandaInfo } = await supabase
+      .from("comandas")
+      .select("id, ticket_number, client_name, status, total_value, is_fiado, payment_method, date_created")
+      .eq("id", comandaId)
+      .single();
+
+    const existsBefore = !!comandaInfo;
+    console.log(`[${TS()}] [DELETE_SERVER] ticket=${comandaInfo?.ticket_number||'?'} existe=${existsBefore}`);
+
+    await insertForensicEvent(supabase, {
+      event_type:    'DELETE_DB_BEFORE',
+      entity_type:   'comanda',
+      entity_id:     comandaId,
+      exists_before: existsBefore,
+      payload_json:  comandaInfo || null,
+      metadata:      { cascade, ticket: comandaInfo?.ticket_number, watch_ticket: comandaInfo && WATCH_TICKETS.includes(comandaInfo.ticket_number) ? true : undefined },
+    }, ctx);
+
+    if (comandaInfo && WATCH_TICKETS.includes(comandaInfo.ticket_number)) {
+      console.error(`%c[${TS()}] [DELETE_SERVER] *** DELETANDO COMANDA MONITORADA: ${comandaInfo.ticket_number} ***`, 'background:red;color:white;font-weight:bold');
+    }
 
     // Se cascade=true, deleta também todos os registros financeiros vinculados
     if (cascade) {
-      // Etapa 1: deleta lançamentos financeiros (receita + taxas de cartão + comissões)
+      console.log(`[${TS()}] [DELETE_SERVER] CASCADE: deletando financials vinculados`);
       const { data: deletedFinancials, error: finErr } = await supabase
         .from("financials")
         .delete()
         .eq("related_comanda_id", comandaId)
         .select("id");
       if (finErr) {
-        console.error(`[Comanda Delete] Erro ao deletar financials vinculados à comanda ${comandaId}:`, finErr);
+        console.error(`[${TS()}] [DELETE_SERVER] CASCADE ERRO: ${finErr.message}`);
+        await insertForensicEvent(supabase, {
+          event_type:  'ERROR',
+          entity_type: 'financial',
+          entity_id:   comandaId,
+          metadata:    { error: finErr.message, phase: 'cascade_delete_financials' },
+        }, ctx);
         return res.status(500).json({ success: false, error: `Erro ao deletar registros financeiros: ${finErr.message}` });
       }
-      console.log(`[Comanda Delete] ${deletedFinancials?.length || 0} registros financeiros deletados para comanda ${comandaId}`);
+      console.log(`[${TS()}] [DELETE_SERVER] CASCADE: ${deletedFinancials?.length || 0} financials removidos`);
     }
 
+    console.log(`[${TS()}] [DELETE_SERVER] Removendo comanda ${comandaId}...`);
     const { error } = await supabase.from("comandas").delete().eq("id", comandaId);
     if (error) {
-      console.error(`[Comanda Delete] Erro ao deletar comanda ${comandaId}:`, error);
+      console.error(`[${TS()}] [DELETE_SERVER] ERRO: ${error.message}`);
+      await insertForensicEvent(supabase, {
+        event_type:  'ERROR',
+        entity_type: 'comanda',
+        entity_id:   comandaId,
+        metadata:    { error: error.message, phase: 'delete_comanda' },
+      }, ctx);
       return res.status(500).json({ success: false, error: error.message });
     }
 
+    // DELETE_DB_AFTER — confirma que o registro foi removido
+    const { data: checkAfter } = await supabase
+      .from("comandas")
+      .select("id")
+      .eq("id", comandaId)
+      .maybeSingle();
+
+    const existsAfter = !!checkAfter;
+    const durationMs = Date.now() - t0;
+
+    await insertForensicEvent(supabase, {
+      event_type:   'DELETE_DB_AFTER',
+      entity_type:  'comanda',
+      entity_id:    comandaId,
+      exists_after: existsAfter,
+      duration_ms:  durationMs,
+      metadata:     { cascade, ticket: comandaInfo?.ticket_number, duration_ms: durationMs },
+    }, ctx);
+
+    console.log(`[${TS()}] [DELETE_SERVER] COMANDA REMOVIDA: ${comandaInfo?.ticket_number||comandaId} confirmado= ${!existsAfter}`);
+    console.log(`[${TS()}] [DELETE_SERVER] ===================== DELETE CONCLUIDO (${durationMs}ms) =====================`);
     res.json({ success: true, cascade });
   } catch (err: any) {
-    console.error(`[Comanda Delete] Erro inesperado:`, err);
+    console.error(`[${TS()}] [DELETE_SERVER] ERRO:`, err);
+    await insertForensicEvent(supabase, {
+      event_type:  'ERROR',
+      entity_type: 'comanda',
+      entity_id:   comandaId,
+      metadata:    { error: err.message, stack: err.stack, phase: 'delete_catch' },
+    }, ctx);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // Preview dos registros que serão afetados pela exclusão em cascata
 app.get("/api/comandas/:id/cascade-preview", async (req, res) => {
+  console.log(`[${TS()}] [CASCADE_PREVIEW] Solicitado preview para comanda ${req.params.id}`);
   try {
     const supabase = getSupabase();
     const comandaId = req.params.id;
@@ -1524,6 +1782,10 @@ app.get("/api/comandas/:id/cascade-preview", async (req, res) => {
       return res.status(500).json({ success: false, error: cmdErr.message });
     }
 
+    console.log(`[${TS()}] [CASCADE_PREVIEW] RESPOSTA: ticket=${comanda?.ticket_number||'?'} financials=${financialRecords||0}`);
+    if (comanda?.ticket_number && WATCH_TICKETS.includes(comanda.ticket_number)) {
+      console.error(`%c[${TS()}] [CASCADE_PREVIEW] *** PREVIEW DE COMANDA MONITORADA: ${comanda.ticket_number} ***`, 'background:red;color:white;font-weight:bold');
+    }
     res.json({
       success: true,
       comandaId,
@@ -1539,7 +1801,7 @@ app.get("/api/comandas/:id/cascade-preview", async (req, res) => {
       },
     });
   } catch (err: any) {
-    console.error(`[Cascade Preview] Erro inesperado:`, err);
+    console.error(`[${TS()}] [CASCADE_PREVIEW] ERRO:`, err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -1692,10 +1954,11 @@ async function forceDeleteFinancials(ids: string[]): Promise<{ deleted: number; 
 // 2) Descrição contendo "CMD-0001" ou "CMD-0003" (comanda removida fisicamente)
 // Retorna purgeLocalCache: true para o front-end limpar o estado local antes do auto-sync.
 app.post("/api/cleanup-orphan-financials", express.json(), async (req, res) => {
+  console.log(`[${TS()}] [CLEANUP] INICIADO salonId=${req.body?.salonId||'all'} dryRun=${req.body?.dryRun||false}`);
   try {
     const supabase = getSupabase();
     const { salonId, dryRun } = req.body || {};
-    const log = (msg: string) => console.log(`[Cleanup] ${msg}`);
+    const log = (msg: string) => console.log(`[${TS()}] [CLEANUP] ${msg}`);
 
     // ─── BUSCA COMANDAS ATIVAS ──────────────────────────────────────────
     let comandaQuery = supabase.from("comandas").select("id");
@@ -1807,6 +2070,7 @@ app.post("/api/cleanup-orphan-financials", express.json(), async (req, res) => {
     }
 
     log(`Total: ${totalCleaned} registro(s) removido(s). Erros: ${errors.length}`);
+    console.log(`[${TS()}] [CLEANUP] CONCLUIDO: ${totalCleaned} removidos, ${errors.length} erros`);
     res.json({
       success: errors.length === 0,
       cleaned: totalCleaned,
@@ -1819,7 +2083,7 @@ app.post("/api/cleanup-orphan-financials", express.json(), async (req, res) => {
         : `${totalCleaned} registro(s) removidos, ${errors.length} erro(s): ${errors.join("; ")}`,
     });
   } catch (err: any) {
-    console.error(`[Cleanup] Erro inesperado:`, err);
+    console.error(`[${TS()}] [CLEANUP] ERRO:`, err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -2006,6 +2270,32 @@ app.delete("/api/appointments/:id", async (req, res) => {
     if (error) throw error;
     res.json({ success: true });
   } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── ENDPOINT FORENSE: recebe eventos da Caixa Preta do navegador ──────────
+app.post("/api/forensic", express.json(), async (req, res) => {
+  const hasSupabase = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!hasSupabase) {
+    console.log('[FORENSIC] Event received (no Supabase):', req.body?.event_type);
+    return res.json({ success: true, mock: true });
+  }
+  const forensicMode = process.env.FORENSIC_MODE === 'true';
+  if (!forensicMode) {
+    console.log(`[FORENSIC] Event received (mode=off): ${req.body?.event_type}`);
+    return res.json({ success: true, mode: 'log_only' });
+  }
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from("forensic_events").insert(req.body).select("id");
+    if (error) {
+      console.error('[FORENSIC] Insert error:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    res.json({ success: true, id: data?.[0]?.id });
+  } catch (err: any) {
+    console.error('[FORENSIC] Error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

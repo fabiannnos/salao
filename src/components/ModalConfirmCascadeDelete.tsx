@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Trash2, X, ShieldAlert, Loader2, AlertTriangle } from "lucide-react";
+import { TS, TAB } from "../forensic";
 
 interface CascadePreview {
   comanda: {
@@ -56,11 +57,14 @@ export default function ModalConfirmCascadeDelete({
 
   const handleConfirm = async () => {
     if (!comandaId || confirming) return;
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] ModalConfirmCascadeDelete: handleConfirm comandaId=${comandaId}`);
     setConfirming(true);
     try {
       await onConfirm(comandaId);
+      console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] ModalConfirmCascadeDelete: onConfirm resolvido`);
       onClose();
-    } catch {
+    } catch (err) {
+      console.error(`[${TAB()}] [${TS()}] [DELETE_FLOW] ModalConfirmCascadeDelete: erro`, err);
       setError("Erro ao excluir comanda");
     } finally {
       setConfirming(false);

@@ -1,5 +1,6 @@
 import { Salon, Professional, Service, Product, Client, Comanda, ComandaStatus, FinancialRecord, Appointment, ChartAccountGroup, ServiceCategory, CardAcquirer, CardFeeRule } from './types';
 import { initialSalons, initialProfessionals, initialServices, initialProducts, initialClients, initialComandas, initialFinancials, initialAppointments, initialChartAccounts, initialServiceCategories } from './initialData';
+import { TS, TAB, shortStack, watchReport, watchTicketsPresent, ticketSummary, checkWatchlist } from './forensic';
 
 // Storage Keys
 const KEY_SALONS = 'saas_salao_salons';
@@ -208,10 +209,17 @@ export function saveClients(clients: Client[]) {
 export function loadComandas(salonId?: string): Comanda[] {
   initializeStorage();
   const all: Comanda[] = JSON.parse(localStorage.getItem(KEY_COMANDAS) || '[]');
+  console.log(`[${TAB()}] [${TS()}] [DATASTORE] loadComandas() origem=${shortStack()} total=${all.length}`);
+  console.log(`[${TAB()}] [${TS()}] [DATASTORE] tickets=[${all.map(c=>c.ticketNumber).join(',')}]`);
+  watchReport(`loadComandas (${all.length} total)`, all);
   return salonId ? all.filter(c => c.salonId === salonId) : all;
 }
 
 export function saveComandas(comandas: Comanda[]) {
+  const antes = JSON.parse(localStorage.getItem(KEY_COMANDAS) || '[]').length;
+  console.log(`[${TAB()}] [${TS()}] [DATASTORE] saveComandas() origem=${shortStack()} ANTES=${antes} DEPOIS=${comandas.length}`);
+  console.log(`[${TAB()}] [${TS()}] [DATASTORE] tickets salvos=[${comandas.map(c=>c.ticketNumber).join(',')}]`);
+  watchReport(`saveComandas (gravando ${comandas.length})`, comandas);
   localStorage.setItem(KEY_COMANDAS, JSON.stringify(comandas));
 }
 
@@ -222,11 +230,20 @@ export function loadFinancials(salonId?: string): FinancialRecord[] {
   // Auto-sync any concluded comandas with isFiado: true that don't have a corresponding receipt record
   const comandas: Comanda[] = JSON.parse(localStorage.getItem(KEY_COMANDAS) || '[]');
   const fiados = comandas.filter(c => c.isFiado && c.status === 'Concluido');
+  if (fiados.length > 0) {
+    console.log(`[${TAB()}] [${TS()}] [DATASTORE] loadFinancials: ${fiados.length} comandas fiado/concluido encontradas`);
+    fiados.forEach(c => console.log(`[${TAB()}] [${TS()}] [DATASTORE]   → fiado: ticket=${c.ticketNumber} id=${c.id} valor=${c.totalValue}`));
+    const watchedFiados = checkWatchlist(fiados.map(c => ({ticketNumber: c.ticketNumber, id: c.id})));
+    if (watchedFiados.length > 0) {
+      console.error(`%c[${TAB()}] [${TS()}] [DATASTORE] *** COMANDA MONITORADA FIADA ENCONTRADA: ${watchedFiados.map(w=>`${w.ticket}(${w.id})`).join(', ')} ***`, 'background:red;color:white;font-weight:bold');
+    }
+  }
   
   let modified = false;
   fiados.forEach(c => {
     const hasRecord = all.some(f => f.relatedComandaId === c.id && f.type === 'receita');
     if (!hasRecord) {
+      console.log(`[${TAB()}] [${TS()}] [DATASTORE] *** AUTO-CRIANDO financial para comanda ${c.ticketNumber} (${c.id}) ***`);
       let cDate: Date;
       try {
         cDate = new Date(c.dateCreated);
@@ -264,6 +281,9 @@ export function loadFinancials(salonId?: string): FinancialRecord[] {
 }
 
 export function saveFinancials(financials: FinancialRecord[]) {
+  const antes = JSON.parse(localStorage.getItem(KEY_FINANCIALS) || '[]').length;
+  console.log(`[${TAB()}] [${TS()}] [DATASTORE] saveFinancials() origem=${shortStack()} ANTES=${antes} DEPOIS=${financials.length}`);
+  console.log(`[${TAB()}] [${TS()}] [DATASTORE] relatedComandaIds=[${financials.map(f=>f.relatedComandaId||'none').join(',')}]`);
   localStorage.setItem(KEY_FINANCIALS, JSON.stringify(financials));
 }
 
@@ -315,10 +335,12 @@ export function addComandaAndUpdateFinance(comanda: Comanda): { comanda: Comanda
 
   // If finalized immediately (Concluido), write to financial records
   if (comanda.status === 'Concluido') {
+    console.log(`[DATASTORE] addComandaAndUpdateFinance: comanda ${comanda.ticketNumber} CONCLUIDO, criando financeiros`);
     const financials = JSON.parse(localStorage.getItem(KEY_FINANCIALS) || '[]') as FinancialRecord[];
 
     // 1. Revenue Record (Service sales) — apenas se ainda não existe
     const alreadyHasRevenue = financials.some(f => f.relatedComandaId === comanda.id && f.type === 'receita');
+    console.log(`[DATASTORE] addComandaAndUpdateFinance: alreadyHasRevenue=${alreadyHasRevenue}`);
     if (!alreadyHasRevenue) {
       const revRecord: FinancialRecord = {
         id: 'fin_trig_rev_' + Math.random().toString(36).substr(2, 9),
@@ -335,6 +357,7 @@ export function addComandaAndUpdateFinance(comanda: Comanda): { comanda: Comanda
       };
       financials.push(revRecord);
       triggeredFinance.push(revRecord);
+      console.log(`[DATASTORE] addComandaAndUpdateFinance: CRIADO financial receita id=${revRecord.id}`);
     }
 
     // If card payment with registered transaction fee expense — apenas se ainda não existe
@@ -491,9 +514,11 @@ export function updateComandaStatus(
 
     // Save comanda back before updating financials
     localStorage.setItem(KEY_COMANDAS, JSON.stringify(comandas));
+    console.log(`[DATASTORE] updateComandaStatus: comanda ${comanda.ticketNumber} movida para CONCLUIDO, criando financeiros`);
 
     // 1. Revenue Record (Service sales) — apenas se ainda não existe
     const alreadyHasRevenue = financials.some(f => f.relatedComandaId === comandaId && f.type === 'receita');
+    console.log(`[DATASTORE] updateComandaStatus: alreadyHasRevenue=${alreadyHasRevenue}`);
     if (!alreadyHasRevenue) {
       const revRecord: FinancialRecord = {
         id: 'fin_trig_rev_' + Math.random().toString(36).substr(2, 9),

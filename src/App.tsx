@@ -20,6 +20,7 @@ import {
   runProfessionalsMigration2026, getLastProfessionalsMigrationReport
 } from './dataStore';
 import { APP_VERSION, APP_BUILD_DATE } from './version';
+import { TS, TAB, shortStack, watchReport, watchTicketsPresent, ticketSummary, checkWatchlist, getSyncMetadata, insertForensicEvent, createForensicContext } from './forensic';
 
 import ModalPagamentoPix from './components/ModalPagamentoPix';
 import ModalConfirmCascadeDelete from './components/ModalConfirmCascadeDelete';
@@ -172,12 +173,22 @@ export default function App() {
   // Load and pull real database on initialization to ensure consistency and prevent data resets
   useEffect(() => {
     const fetchAndInitialize = async () => {
+      console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] ===================== FETCH AND INITIALIZE =====================`);
       try {
         const res = await fetch("/api/supa-pull");
         const data = await res.json();
+        console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] supa-pull: ok=${res.ok} success=${data.success} isMock=${data.isMock}`);
         
         if (res.ok && data && data.success && !data.isMock) {
-          console.log("[Database Pull] Sincronizando dados autoritativos do Supabase na inicialização...");
+          const comandasServer = data.comandas || [];
+          const financialsServer = data.financials || [];
+          console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] SERVIDOR RESPOSTA: comandas=${comandasServer.length} financials=${financialsServer.length}`);
+          if (comandasServer.length > 0) {
+            const tickets = comandasServer.map((c: any) => c.ticketNumber);
+            console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] SERVIDOR tickets=[${tickets.join(',')}]`);
+            console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] SERVIDOR ${watchTicketsPresent(comandasServer)}`);
+            watchReport(`supa-pull (servidor retornou)`, comandasServer);
+          }
           
           // Merge PIX fields from localStorage into server data (server may strip unknown fields)
           const localSalonsBefore = loadSalons();
@@ -203,14 +214,44 @@ export default function App() {
               return serverSalon;
             })
           ];
+          const localComandasBefore = loadComandas();
+          console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] ANTES saveComandas (supa-pull): localStorage tem ${localComandasBefore.length} comandas`);
+          console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] ${watchTicketsPresent(localComandasBefore)}`);
+
+          // MERGE_BEFORE — estado local vs servidor antes da sobrescrita
+          const mergeCtx = createForensicContext();
+          await insertForensicEvent(null, {
+            event_type:    'MERGE_BEFORE',
+            metadata: {
+              local_comandas:  localComandasBefore.length,
+              server_comandas: (data.comandas||[]).length,
+              local_tickets:   localComandasBefore.map((c:any)=>c.ticketNumber),
+              server_tickets:  (data.comandas||[]).map((c:any)=>c.ticketNumber),
+              watch_local:     WATCH_TICKETS.map(t => ({ ticket: t, local: !!localComandasBefore.find((c:any)=>c.ticketNumber===t), server: !!(data.comandas||[]).find((c:any)=>c.ticketNumber===t) })),
+            },
+          }, mergeCtx);
+          
           saveSalons(mergedTenants);
           saveProfessionals(data.professionals || []);
           saveServices(data.services || []);
           saveProducts(data.products || []);
-          saveClients(data.clients || []);
           saveComandas(data.comandas || []);
           saveFinancials(data.financials || []);
           saveAppointments(data.appointments || []);
+          
+          const localComandasAfter = loadComandas();
+          console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] DEPOIS saveComandas (supa-pull): localStorage tem ${localComandasAfter.length} comandas`);
+          console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] ${watchTicketsPresent(localComandasAfter)}`);
+
+          // MERGE_AFTER — estado do localStorage após a sobrescrita
+          await insertForensicEvent(null, {
+            event_type:   'MERGE_AFTER',
+            metadata: {
+              merged_comandas:   localComandasAfter.length,
+              merged_tickets:    localComandasAfter.map((c:any)=>c.ticketNumber),
+              watch_merged:      WATCH_TICKETS.map(t => ({ ticket: t, merged: !!localComandasAfter.find((c:any)=>c.ticketNumber===t) })),
+            },
+          }, mergeCtx);
           
           setSalons(mergedTenants);
           setProfessionals(loadProfessionals());
@@ -220,8 +261,11 @@ export default function App() {
           setComandas(loadComandas());
           setFinancials(loadFinancials());
           setAppointments(loadAppointments());
+          console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] React state atualizado apos supa-pull`);
         } else {
-          console.log("[Database Pull] Iniciando em modo offline sandbox usando dados de localStorage.");
+          const localCount = loadComandas().length;
+          console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] Modo offline/sandbox: usando localStorage. comandas=${localCount}`);
+          console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] ${watchTicketsPresent(loadComandas())}`);
           setSalons(loadSalons());
           setProfessionals(loadProfessionals());
           setServices(loadServices());
@@ -232,7 +276,9 @@ export default function App() {
           setAppointments(loadAppointments());
         }
       } catch (err) {
-        console.warn("[Database Pull Fail] Falha ao tentar puxar banco de dados na inicialização, usando dados locais:", err);
+        console.warn(`[${TAB()}] [${TS()}] [PULL_FLOW] ERRO:`, err);
+        console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] Fallback localStorage. comandas=${loadComandas().length}`);
+        console.log(`[${TAB()}] [${TS()}] [PULL_FLOW] ${watchTicketsPresent(loadComandas())}`);
         setSalons(loadSalons());
         setProfessionals(loadProfessionals());
         setServices(loadServices());
@@ -479,16 +525,39 @@ export default function App() {
     if (!force && (isSyncingRef.current || isAutoSyncing)) return;
     isSyncingRef.current = true;
     setIsAutoSyncing(true);
+
+    // Determinar origem
+    const stackLine = shortStack();
+    let origem = 'Manual';
+    if (stackLine.includes('setInterval') || stackLine.includes('interval')) origem = 'Timer 45s';
+    else if (stackLine.includes('debounce') || stackLine.includes('setTimeout')) origem = 'Debounce';
+    else if (force) origem = 'Manual (force)';
+
+    console.log(`[${TAB()}] [${TS()}] [SYNC_FLOW] ===================== AUTO-SYNC INICIADO =====================`);
+    console.log(`[${TAB()}] [${TS()}] [SYNC_FLOW] Origem: ${origem}`);
+    console.log(`[${TAB()}] [${TS()}] [SYNC_FLOW] Stack: ${stackLine}`);
+
     try {
+      const comandasPayload = loadComandas();
+      const financialsPayload = loadFinancials();
+      const syncMetadata = getSyncMetadata();
       const payload = {
         isSaaSAdmin: userRoleRef.current === 'SAAS_ADMIN',
         tenants: loadSalons(),
         professionals: loadProfessionals(),
         services: loadServices(),
         products: loadProducts(),
-        comandas: loadComandas(),
-        financials: loadFinancials()
+        comandas: comandasPayload,
+        financials: financialsPayload,
+        syncMetadata
       };
+
+      const ticketNumbers = comandasPayload.map((c: Comanda) => c.ticketNumber);
+      console.log(`[${TAB()}] [${TS()}] [SYNC_FLOW] PAYLOAD comandas=${comandasPayload.length}`);
+      console.log(`[${TAB()}] [${TS()}] [SYNC_FLOW] PAYLOAD tickets=[${ticketNumbers.join(',')}]`);
+      console.log(`[${TAB()}] [${TS()}] [SYNC_FLOW] PAYLOAD ${watchTicketsPresent(comandasPayload)}`);
+      watchReport(`PAYLOAD supa-sync`, comandasPayload);
+      console.log(`[${TAB()}] [${TS()}] [SYNC_FLOW] SYNC_METADATA deviceId=${syncMetadata.deviceId} tabId=${syncMetadata.tabId} platform=${syncMetadata.platform} screen=${syncMetadata.screen}`);
 
       const response = await fetch("/api/supa-sync", {
         method: "POST",
@@ -499,22 +568,21 @@ export default function App() {
       });
 
       if (!response.ok) {
-        console.warn(`[Background Sync] Servidor retornou status ${response.status} (${response.statusText}). Os dados permanecem guardados localmente.`);
+        console.warn(`[${TAB()}] [${TS()}] [SYNC_FLOW] RESPOSTA: status ${response.status} (FALHA)`);
         return;
       }
 
       const data = await response.json();
+      console.log(`[${TAB()}] [${TS()}] [SYNC_FLOW] RESPOSTA SERVER: success=${data.success} isMock=${data.isMock}`);
+      if (data.success) {
+        console.log(`[${TAB()}] [${TS()}] [SYNC_FLOW] RESPOSTA SERVER: results=`, data.results);
+      }
       if (data) {
-        // Se o servidor retornou os dados atualizados reais dos inquilinos (salões), atualiza no estado e local storage!
-        // Fazemos isso independente de data.success para garantir que as atualizações de licenças e limites corporativos nunca fiquem presas por erros em tabelas secundárias.
         if (Array.isArray(data.tenants)) {
-          // Servidor é a fonte da verdade para TODOS os campos de tenant
           const mergedTenants = data.tenants.map((serverSalon: any) => ({
             ...serverSalon,
           }));
           triggerUpdateSalons(mergedTenants);
-          
-          // Se houver um salão selecionado no momento, vamos atualizar a referência do currentSalon para refletir e exibir a nova data de expiração imediatamente!
           const activeSalon = currentSalonRef.current;
           if (activeSalon) {
             const updatedCurrent = mergedTenants.find((s: any) => s.id === activeSalon.id);
@@ -523,17 +591,17 @@ export default function App() {
             }
           }
         }
-
         if (data.success) {
           setLastAutoSyncTime(new Date().toLocaleTimeString('pt-BR'));
-          console.log(`[Database Auto-Sync] Todos os dados sincronizados em segundo plano com sucesso às ${new Date().toLocaleTimeString('pt-BR')}`);
+          console.log(`[${TAB()}] [${TS()}] [SYNC_FLOW] Auto-Sync CONCLUIDO`);
         }
       }
     } catch (err) {
-      console.warn("[Background Sync] Servidor ocupado ou offline. Os dados permanecem guardados localmente com segurança.", err);
+      console.warn(`[${TAB()}] [${TS()}] [SYNC_FLOW] ERRO:`, err);
     } finally {
       setIsAutoSyncing(false);
       isSyncingRef.current = false;
+      console.log(`[${TAB()}] [${TS()}] [SYNC_FLOW] ===================== AUTO-SYNC FINALIZADO =====================`);
     }
   };
 
@@ -770,37 +838,88 @@ export default function App() {
 
   const handleDeleteComandaObj = async (id: string) => {
     if (isMutationBlocked("Excluir Comanda")) return;
-    // Abre modal de confirmação em cascata com preview dos registros vinculados
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] handleDeleteComandaObj INICIADO id=${id}`);
+    const cmd = comandas.find(c => c.id === id);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] handleDeleteComandaObj ticket=${cmd?.ticketNumber||'NAO_ENCONTRADA'} cliente=${cmd?.clientName||'?'} status=${cmd?.status||'?'}`);
+    // Verifica se é monitorada
+    if (cmd && checkWatchlist([cmd]).length > 0) {
+      console.error(`%c[${TAB()}] [${TS()}] [DELETE_FLOW] *** COMANDA MONITORADA SENDO EXCLUIDA: ${cmd.ticketNumber} (${cmd.id}) ***`, 'background:red;color:white;font-weight:bold');
+    }
     setCascadeDeleteTarget(id);
   };
 
   const executeCascadeDelete = async (id: string) => {
     if (isMutationBlocked("Excluir Comanda")) return;
+    const allBefore = loadComandas();
+    const cmdTarget = allBefore.find(c => c.id === id);
+    const cmdTicket = cmdTarget?.ticketNumber || 'DESCONHECIDA';
+    const cmdClient = cmdTarget?.clientName || '?';
+    const cmdStatus = cmdTarget?.status || '?';
+    const svcCount = cmdTarget?.services?.length || 0;
+    const isWatched = checkWatchlist(cmdTarget ? [cmdTarget] : []).length > 0;
+
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] ===================== INICIO EXCLUSAO =====================`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] Ticket: ${cmdTicket}`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] ID interno: ${id}`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] Status: ${cmdStatus}`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] Cliente: ${cmdClient}`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] Servicos: ${svcCount}`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] Monitorada: ${isWatched ? 'SIM' : 'NAO'}`);
+
+    if (isWatched) {
+      console.error(`%c[${TAB()}] [${TS()}] [DELETE_FLOW] *** INICIANDO EXCLUSAO DE COMANDA MONITORADA: ${cmdTicket} ***`, 'background:red;color:white;font-weight:bold');
+    }
+
+    const antesComandas = allBefore.length;
+    const antesFinancials = loadFinancials().length;
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] ANTES: comandas=${antesComandas}, financials=${antesFinancials}`);
+
     try {
+      console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] SERVIDOR: enviando DELETE /api/comandas/${id}?cascade=true`);
       const res = await fetch(`/api/comandas/${id}?cascade=true`, { method: "DELETE" });
       const data = await res.json();
+      console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] SERVIDOR: resposta status=${res.status} success=${data.success} cascade=${data.cascade}`);
       if (!data.success) {
-        console.warn("[Comanda Delete] Falha ao deletar no servidor:", data.error);
+        console.warn(`[${TAB()}] [${TS()}] [DELETE_FLOW] SERVIDOR: FALHA data.error=`, data.error);
         return;
       }
+      console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] SERVIDOR: DELETE REALIZADO COM SUCESSO`);
     } catch (err) {
-      console.warn("[Comanda Delete] Erro de rede ao deletar no servidor:", err);
+      console.warn(`[${TAB()}] [${TS()}] [DELETE_FLOW] SERVIDOR: ERRO DE REDE`, err);
       return;
     }
-    const allComandas = loadComandas();
-    const filtered = allComandas.filter(c => c.id !== id);
+
+    // ANTES saveComandas
+    const allNow = loadComandas();
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] ANTES saveComandas():`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   quantidade=${allNow.length}`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   tickets=[${allNow.map(c=>c.ticketNumber).join(',')}]`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   ${watchTicketsPresent(allNow)}`);
+
+    const filtered = allNow.filter(c => c.id !== id);
+
+    // DEPOIS saveComandas
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] DEPOIS saveComandas():`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   quantidade=${filtered.length}`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   tickets=[${filtered.map(c=>c.ticketNumber).join(',')}]`);
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW]   ${watchTicketsPresent(filtered)}`);
+
     saveComandas(filtered);
     if (currentSalon) {
       setComandas(filtered.filter(c => c.salonId === currentSalon.id));
     }
 
-    // Remove registros financeiros vinculados à comanda excluída
+    // Financials
     const allFinancials = loadFinancials();
+    const finVinculados = allFinancials.filter(f => f.relatedComandaId === id).length;
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] FINANCEIROS: antes=${allFinancials.length} vinculados=${finVinculados}`);
     const filteredFinancials = allFinancials.filter(f => f.relatedComandaId !== id);
     saveFinancials(filteredFinancials);
     if (currentSalon) {
       setFinancials(filteredFinancials.filter(f => f.salonId === currentSalon.id));
     }
+
+    console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] ===================== EXCLUSAO FINALIZADA =====================`);
   };
 
   const handleAddFinancialRecordObj = (record: FinancialRecord) => {

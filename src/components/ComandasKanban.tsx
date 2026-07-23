@@ -24,6 +24,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import AlertModal from './AlertModal';
+import { TS, TAB, shortStack, checkWatchlist } from '../forensic';
 
 interface ComandasKanbanProps {
   salonId: string;
@@ -2641,6 +2642,11 @@ export default function ComandasKanban({
               <button
                 type="button"
                 onClick={() => {
+                  const isWatched = checkWatchlist([comandaToDelete]).length > 0;
+                  console.log(`[${TAB()}] [${TS()}] [DELETE_FLOW] UI: Confirmar Exclusão clicado ticket=${comandaToDelete.ticketNumber} id=${comandaToDelete.id} monitorada=${isWatched ? 'SIM' : 'NAO'}`);
+                  if (isWatched) {
+                    console.error(`%c[${TAB()}] [${TS()}] [DELETE_FLOW] *** EXCLUSAO CONFIRMADA PARA COMANDA MONITORADA: ${comandaToDelete.ticketNumber} ***`, 'background:red;color:white;font-weight:bold');
+                  }
                   onDeleteComanda(comandaToDelete.id);
                   setComandaToDelete(null);
                 }}
