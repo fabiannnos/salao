@@ -164,10 +164,7 @@ export function setForensicMode(enabled: boolean): void {
 // ─── CAIXA PRETA FORENSE — REQUEST ID ───────────────────────────────────────
 
 export function generateRequestId(): string {
-  return 'req_' + 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = Math.random() * 16 | 0;
-    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-  });
+  return crypto.randomUUID();
 }
 
 // ─── CAIXA PRETA FORENSE — CONTEXTO ─────────────────────────────────────────

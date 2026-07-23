@@ -646,15 +646,16 @@ if (!dbFetchErr && dbTenants && dbTenants.length > 0) {
         }
 
         console.log(`[${TS()}] [SUPA_SYNC] Upserting ${mapping.table}: ${sanitized.length} registros`);
-        
-        // SUPA_SYNC_BEFORE_UPSERT — verifica existência e registra evento forense
+
+        // SUPA_SYNC_BEFORE_UPSERT — 1 evento por tabela, watchlist em array no metadata
+        let watchBefore: any[] = [];
         if (mapping.key === 'comandas') {
           console.log(`[${TS()}] [SUPA_SYNC] COMANDAS sendo upsertadas: tickets=[${sanitized.map((x:any)=>x.ticket_number).join(',')}]`);
           const watched = checkWatchlist(sanitized.map((x:any)=>({ticketNumber: x.ticket_number, id: x.id})));
           if (watched.length > 0) {
             console.error(`%c[${TS()}] [SUPA_SYNC] *** UPSERT DE COMANDAS MONITORADAS: ${watched.map(w=>`${w.ticket}(${w.id})`).join(', ')} ***`, 'background:red;color:white;font-weight:bold');
           }
-          // Batch check existence no DB para todas as comandas do lote
+          // Batch check existence no DB
           const allIds = sanitized.map((x:any)=>x.id).filter(Boolean);
           let existingIds = new Set<string>();
           if (allIds.length > 0) {
@@ -666,43 +667,29 @@ if (!dbFetchErr && dbTenants && dbTenants.length > 0) {
               if (dbExisting) {
                 existingIds = new Set(dbExisting.map((r:any)=>r.id));
               }
-            } catch (_) { /* ignora erro na checagem forense */ }
+            } catch (_) {}
           }
-          for (const item of sanitized) {
-            const existsBefore = existingIds.has(item.id);
-            await insertForensicEvent(supabase, {
-              event_type:   'SUPA_SYNC_BEFORE_UPSERT',
-              entity_type:  'comanda',
-              entity_id:    item.id,
-              exists_before: existsBefore,
-              payload_json: item,
-              metadata:     { table: mapping.table, ticket_number: item.ticket_number, watch_ticket: item.ticket_number && WATCH_TICKETS.includes(item.ticket_number) ? true : undefined },
-            }, ctx);
-          }
-        } else if (mapping.key === 'financials') {
-          for (const item of sanitized) {
-            await insertForensicEvent(supabase, {
-              event_type:   'SUPA_SYNC_BEFORE_UPSERT',
-              entity_type:  'financial',
-              entity_id:    item.id,
-              payload_json: { related_comanda_id: item.related_comanda_id, type: item.type, amount: item.amount },
-              metadata:     { table: mapping.table },
-            }, ctx);
-          }
-        } else {
-          for (const item of sanitized) {
-            await insertForensicEvent(supabase, {
-              event_type:   'SUPA_SYNC_BEFORE_UPSERT',
-              entity_type:  mapping.table,
-              entity_id:    item.id,
-              payload_json: { id: item.id },
-              metadata:     { table: mapping.table },
-            }, ctx);
-          }
+          watchBefore = sanitized
+            .filter((x:any) => x.ticket_number && WATCH_TICKETS.includes(x.ticket_number))
+            .map((x:any) => ({ ticket: x.ticket_number, id: x.id, exists_before: existingIds.has(x.id) }));
         }
+        await insertForensicEvent(supabase, {
+          event_type:  'SUPA_SYNC_BEFORE_UPSERT',
+          entity_type: mapping.table,
+          entity_id:   null,
+          metadata:    {
+            table:      mapping.table,
+            count:      sanitized.length,
+            watch:      watchBefore,
+            watch_count: watchBefore.length,
+          },
+        }, ctx);
+
         const result = await supabase.from(mapping.table).upsert(sanitized);
         const { error } = result;
 
+        // SUPA_SYNC_AFTER_UPSERT — 1 evento por tabela
+        let watchAfter: any[] = [];
         if (mapping.key === 'comandas') {
           if (error) {
             console.error(`[${TS()}] [SUPA_SYNC] UPSERT ERROR comandas: ${error.message}`);
@@ -710,7 +697,6 @@ if (!dbFetchErr && dbTenants && dbTenants.length > 0) {
             console.log(`[${TS()}] [SUPA_SYNC] UPSERT FINALIZADO comandas: ${sanitized.length} registros`);
             console.log(`[${TS()}] [SUPA_SYNC] tickets gravados=[${sanitized.map((x:any)=>x.ticket_number).join(',')}]`);
           }
-          // SUPA_SYNC_AFTER_UPSERT - confirma se as comandas existem após o upsert
           const allIds = sanitized.map((x:any)=>x.id).filter(Boolean);
           let afterIds = new Set<string>();
           if (allIds.length > 0) {
@@ -722,18 +708,27 @@ if (!dbFetchErr && dbTenants && dbTenants.length > 0) {
               if (dbAfter) {
                 afterIds = new Set(dbAfter.map((r:any)=>r.id));
               }
-            } catch (_) { /* ignora */ }
+            } catch (_) {}
           }
-          for (const item of sanitized) {
-            const existsAfter = !error && afterIds.has(item.id);
-            await insertForensicEvent(supabase, {
-              event_type:   'SUPA_SYNC_AFTER_UPSERT',
-              entity_type:  'comanda',
-              entity_id:    item.id,
-              exists_after: existsAfter,
-              metadata:     { ticket_number: item.ticket_number, upsert_ok: !error, watch_ticket: item.ticket_number && WATCH_TICKETS.includes(item.ticket_number) ? true : undefined },
-            }, ctx);
-          }
+          watchAfter = sanitized
+            .filter((x:any) => x.ticket_number && WATCH_TICKETS.includes(x.ticket_number))
+            .map((x:any) => ({ ticket: x.ticket_number, id: x.id, exists_after: !error && afterIds.has(x.id) }));
+        }
+        await insertForensicEvent(supabase, {
+          event_type:  'SUPA_SYNC_AFTER_UPSERT',
+          entity_type: mapping.table,
+          entity_id:   null,
+          metadata:    {
+            table:      mapping.table,
+            count:      sanitized.length,
+            success:    !error,
+            watch:      watchAfter,
+            watch_count: watchAfter.length,
+          },
+        }, ctx);
+
+        if (mapping.key === 'comandas' && watchAfter.length > 0) {
+          watchAfter.forEach((w: any) => console.log(`[SUPA_SYNC]   watch=${w.ticket} id=${w.id} exists_after=${w.exists_after}`));
         }
 
         if (error) {
